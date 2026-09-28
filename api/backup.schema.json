@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haminn.invalid/schema/backup-v3.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "createdAt", "app", "recordCount", "fileCount", "codeFileCount", "entries", "excludes"],
+  "properties": {
+    "schema": { "const": 3 },
+    "createdAt": { "type": "integer", "minimum": 0 },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "runtimeMode", "liveUrl", "sourceAdapter", "sourceSpec"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "source": { "enum": ["online", "local"] },
+        "runtimeMode": { "enum": ["local", "live"] },
+        "liveUrl": { "type": ["string", "null"] },
+        "happId": { "type": ["string", "null"] },
+        "updateUrl": { "type": ["string", "null"] },
+        "downloadUrl": { "type": ["string", "null"] },
+        "customIconEntry": { "type": ["string", "null"], "pattern": "^presentation/custom-icon\\.(png|jpg|webp)$" },
+        "allowCrossOriginNetwork": { "type": "boolean" },
+        "sourceAdapter": { "type": "string" },
+        "sourceSpec": { "type": "object" }
+      }
+    },
+    "recordCount": { "type": "integer", "minimum": 0 },
+    "fileCount": { "type": "integer", "minimum": 0 },
+    "codeFileCount": { "type": "integer", "minimum": 0 },
+    "entries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object", "required": ["sha256", "size"],
+        "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "size": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "excludes": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">Haminn</string>
+    <string name="incompatible_title">当前没有可用的 WebView</string>
+    <string name="incompatible_message">Haminn 未找到系统可创建的网页引擎。请启用或更新手机自带 WebView 后重试；应用库数据仍保留在设备上。</string>
+    <string name="retry">重试</string>
+    <string name="open_settings">系统设置</string>
+    <string name="native_recovery_title">原生恢复工具</string>
+    <string name="native_recovery_message">即使当前 WebView 不兼容，仍可导出 Haminn 管理的代码、记录与附件；不会导出 Cookie、WebStorage 或授权。</string>
+    <string name="export_backup_for">导出备份 · %1$s</string>
+    <string name="restore_new_instance">从备份恢复为新实例</string>
+    <string name="open_webview_settings">打开 WebView 实现设置</string>
+    <string name="cancel">取消</string>
+    <string name="cancel_qr_scan">取消二维码扫描</string>
+    <string name="qr_camera_preview">二维码扫描相机画面</string>
+    <string name="qr_scan_prompt">将网页链接二维码放入取景框</string>
+    <string name="qr_turn_on_light">打开照明</string>
+    <string name="qr_turn_off_light">关闭照明</string>
+    <string name="qr_camera_permission_denied">未授予相机权限，无法扫描二维码</string>
+    <string name="qr_camera_unavailable">设备没有可用的相机</string>
+    <string name="qr_camera_start_failed">无法启动相机：%1$s</string>
+    <string name="unknown_error">未知错误</string>
+</resources>

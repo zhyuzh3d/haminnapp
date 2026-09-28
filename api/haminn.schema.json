@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haminn.invalid/schema/haminn-v2.json",
+  "title": "Haminn happ package manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "happId", "name", "version"],
+  "properties": {
+    "schema": { "const": 2 },
+    "happId": { "type": "string", "minLength": 3, "maxLength": 160, "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9]*)+$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name"],
+      "properties": {
+        "code": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "entry": { "$ref": "#/$defs/path" },
+    "routing": { "enum": ["hash", "history"] },
+    "icon": { "$ref": "#/$defs/path" },
+    "liveUrl": { "$ref": "#/$defs/httpUrl" },
+    "updateUrl": { "$ref": "#/$defs/httpUrl" },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "orientation": { "enum": ["unspecified", "portrait", "landscape"] },
+        "keyboard": { "enum": ["resize", "overlay"] }
+      }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!__haminn/)[^\\\\\\u0000]+$"
+    },
+    "httpUrl": { "type": "string", "maxLength": 4096, "pattern": "^https?://[^\\s]+$" }
+  }
+}

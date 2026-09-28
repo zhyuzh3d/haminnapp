@@ -1,0 +1,8 @@
+{
+  "schema": 2,
+  "happId": "com.haminn.voicenotes",
+  "name": "Haminn 语音笔记",
+  "entry": "index.html",
+  "routing": "hash",
+  "version": { "code": 2, "name": "1.1.0" }
+}

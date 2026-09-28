@@ -1,0 +1,17 @@
+{
+  "name": "haminnapp-web",
+  "version": "1.7.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check app/src/main/assets/bridge/haminn-v1.js && node --check app/src/main/assets/bridge/icons.js && node --check app/src/main/assets/store/store.js && node tools/validate-contracts.mjs",
+    "test": "node --test tools/contracts.test.mjs",
+    "build": "node tools/build-web.mjs",
+    "vendor:icons": "node tools/vendor-icons.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "7.3.1"
+  }
+}

@@ -1,0 +1,104 @@
+name: 缺陷报告
+description: 报告 HaminnApp 宿主本身的问题(安装,运行,权限,桥接,数据,备份等)
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈!请尽量把信息填全,方便定位。提交前请先确认:你已经安装的是官网下载页或 Releases 里的最新正式版 APK。
+        请不要粘贴签名密钥,token 或未打码的隐私数据。
+  - type: input
+    id: haminn-version
+    attributes:
+      label: Haminn 版本
+      description: 打开 Haminn「设置」页,复制版本号与 versionCode。
+      placeholder: "例如 1.11.0 (versionCode 80)"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: 安装来源
+      options:
+        - 官网下载页
+        - GitHub Releases
+        - 其他(请在下方说明)
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android 版本
+      placeholder: "例如 Android 12 / API 31"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备型号
+      placeholder: "例如 某品牌 某型号"
+    validations:
+      required: true
+  - type: input
+    id: webview-version
+    attributes:
+      label: WebView 版本(如可获取)
+      description: 若问题与某个 happ 页面渲染相关,请填写系统 WebView 版本。
+      placeholder: "例如 Chrome 83 / 120"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步一步写清从打开应用开始的每一步操作。
+      placeholder: |
+        1. 打开 Haminn,进入……
+        2. 点击……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 有报错信息或截图请一并贴上,截图请打码隐私内容。
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围
+      options:
+        - 只影响宿主界面(HaminnUI)
+        - 只影响某个 happ
+        - 影响所有 happ 或整个应用
+        - 不确定
+    validations:
+      required: true
+  - type: input
+    id: happ
+    attributes:
+      label: 相关 happ(如适用)
+      description: 若与某个 happ 相关,请填写它的名称或 happId。
+      placeholder: "例如 life.airen.chataxi"
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我使用的是官网或 Releases 的最新正式版 APK。
+          required: true
+        - label: 我已搜索过现有 Issue,没有发现重复。
+          required: true
+        - label: 我提交的内容不包含签名密钥,token 或未打码的隐私数据。
+          required: true

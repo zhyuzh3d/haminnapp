@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 下载与了解 Haminn
+    url: https://haminn.airen.life/
+    about: 官网,含下载页,使用指南,应用广场与常见问题。
+  - name: 使用指南
+    url: https://haminn.airen.life/pages/guide.html
+    about: 添加应用,授权,扫码与智能体开发模式的图文说明。
+  - name: chataxi(多角色 AI 群聊)
+    url: https://chataxi.airen.life/
+    about: 装在 Haminn 里的 AI 对话应用。
+  - name: HamDraw(实时 AI 绘图)
+    url: https://hamdraw.airen.life/
+    about: 装在 Haminn 里的实时 AI 绘图应用。
+  - name: PoseGi(3D 摆姿生图)
+    url: https://github.com/zhyuzh3d/PoseGi
+    about: 装在 Haminn 里的 3D 摆姿应用(官方站点规划中,暂以仓库为准)。

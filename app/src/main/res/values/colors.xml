@@ -1,0 +1,11 @@
+<resources>
+    <color name="haminn_background">#F6F6F7</color>
+    <color name="haminn_icon_background">#000000</color>
+    <color name="haminn_dialog_background">#FFFFFF</color>
+    <color name="haminn_status_default_light">#F6F6F7</color>
+    <color name="haminn_status_default_dark">#050507</color>
+    <color name="haminn_status_dev_light">#B8F7CE</color>
+    <color name="haminn_status_dev_dark">#007A45</color>
+    <color name="haminn_status_live_light">#C5E4FF</color>
+    <color name="haminn_status_live_dark">#0F67C8</color>
+</resources>

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haminn.invalid/schema/haminn-install-v1.json",
+  "title": "Haminn online happ installation manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "package"],
+  "properties": {
+    "schema": { "const": 1 },
+    "package": { "$ref": "#/$defs/path" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\?#\\u0000]+$"
+    }
+  }
+}

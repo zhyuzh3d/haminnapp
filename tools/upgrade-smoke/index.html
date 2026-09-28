@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Haminn upgrade smoke</title>
+</head>
+<body>
+  <output id="result">waiting</output>
+  <script>
+    async function verify() {
+      const key = "signed-upgrade-marker";
+      const existing = await haminn.data.get({ collection: "release-smoke", key });
+      if (existing) {
+        document.querySelector("#result").textContent = "preserved:" + existing.value.value;
+        document.title = "Haminn upgrade preserved";
+        return;
+      }
+      await haminn.data.put({
+        collection: "release-smoke",
+        key,
+        value: { value: "created-by-0.9.0" },
+        expectedRevision: "absent"
+      });
+      document.querySelector("#result").textContent = "created:created-by-0.9.0";
+      document.title = "Haminn upgrade fixture created";
+    }
+    addEventListener("haminnready", () => verify().catch(error => {
+      document.querySelector("#result").textContent = "error:" + error.message;
+    }), { once: true });
+    if (haminn.isReady) verify();
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+<resources>
+    <color name="haminn_background">#050507</color>
+    <color name="haminn_icon_background">#000000</color>
+    <color name="haminn_dialog_background">#111116</color>
+</resources>

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haminn.invalid/schema/rpc-v1.json",
+  "title": "Haminn RPC envelope",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/ack" },
+    { "$ref": "#/$defs/request" }
+  ],
+  "$defs": {
+    "hello": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "v", "documentId"],
+      "properties": { "kind": { "const": "hello" }, "v": { "const": 1 }, "documentId": { "$ref": "#/$defs/id" } }
+    },
+    "ack": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "documentId", "challenge"],
+      "properties": { "kind": { "const": "ack" }, "documentId": { "$ref": "#/$defs/id" }, "challenge": { "$ref": "#/$defs/id" } }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "v", "id", "documentId", "sessionId", "documentEpoch", "method", "params"],
+      "properties": {
+        "kind": { "const": "request" }, "v": { "const": 1 }, "id": { "$ref": "#/$defs/id" },
+        "documentId": { "$ref": "#/$defs/id" }, "sessionId": { "$ref": "#/$defs/id" },
+        "documentEpoch": { "type": "integer", "minimum": 0 },
+        "method": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[A-Za-z][A-Za-z0-9]*)+$", "maxLength": 100 },
+        "params": { "type": "object" }
+      }
+    },
+    "id": { "type": "string", "minLength": 16, "maxLength": 128 }
+  }
+}

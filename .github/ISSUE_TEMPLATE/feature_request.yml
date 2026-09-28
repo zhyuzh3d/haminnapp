@@ -1,0 +1,54 @@
+name: 功能建议
+description: 为 HaminnApp 宿主提出新功能或改进建议
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的建议!请先描述你要解决的问题,再说你希望的方案,方便判断它是否属于宿主职责。
+        HaminnApp 是 happ 容器与 Native Bridge,只提供通用能力;某个 happ 自己的业务逻辑不属于本仓库。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决的问题
+      description: 现在遇到了什么不便?请描述真实场景,而不只是给出方案。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望的方案
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 相关范围
+      options:
+        - 应用库与安装
+        - 运行与版本
+        - 页面桥接能力(Bridge)
+        - 权限与授权
+        - 数据,文件与备份
+        - 通知
+        - 智能体开发模式
+        - 界面(HaminnUI)
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你考虑过的替代方案
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 Issue,没有发现重复建议。
+          required: true
+        - label: 我愿意在需要时提交 Pull Request。
+          required: false

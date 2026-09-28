@@ -1,0 +1,1092 @@
+[
+  {
+    "name": "haminn_get_guide",
+    "description": "Return current device development guidance and version identifiers.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_runtime_status",
+    "description": "Return the foreground Haminn runtime target and its launch channel. A successful MCP connection already proves the global development service is enabled; use this only to decide whether the target happ must be entered and opened.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_get_page_state",
+    "description": "Read bounded basics for the visible page. Selected localStorage and custom app state are available only to HaminnUI or an ordinary happ running its development copy.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Required for an ordinary happ and must match the visible DEV copy. Omit for HaminnUI."
+        },
+        "happId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Stable happ identity; the service resolves it to the unique installed instance when appId is omitted."
+        },
+        "localStorageKeys": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Explicit keys to read. HaminnUI filters this list to its public state keys."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_capture_screen",
+    "description": "Capture the current HaminnApp window and return it as an MCP image for visual review. For an ordinary happ, appId must match the visible DEV copy. Omit appId only while HaminnUI is visible. This does not capture other apps or bypass Android screen-capture consent.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Required for an ordinary happ and must match the visible DEV copy. Omit for HaminnUI."
+        },
+        "maxEdge": {
+          "type": "integer",
+          "minimum": 720,
+          "maximum": 2048,
+          "description": "Maximum output width or height in pixels. Defaults to 1600."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_list_apps",
+    "description": "List ordinary installed happs. The protected HaminnUI control plane is never returned.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "includeIcons": {
+          "type": "boolean",
+          "description": "Include object URLs for app icons; omitted by default for fast app matching."
+        },
+        "happId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Optional stable happ identity filter for fast matching."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_get_app",
+    "description": "Get one ordinary happ and its development workspace state.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "includeIcons": {
+          "type": "boolean",
+          "description": "Include the app icon object URL; omitted by default to keep the response compact."
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_create_dev_app",
+    "description": "Create a minimal valid happ, create its single dev workspace and run the dev copy.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "happId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Stable reverse-domain happ identity"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        }
+      },
+      "required": [
+        "name",
+        "happId",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_enter_dev_mode",
+    "description": "Idempotently create or reuse the single dev workspace, switch this happ to the DEV launch channel, and open it. Call when the foreground runtime is not already this appId in DEV; do not separately check the global development switch.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Optional same-origin relative route to open after entering DEV."
+        }
+      },
+      "required": [
+        "appId",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_leave_dev_mode",
+    "description": "Switch launches back to the immutable stable release while preserving the dev workspace.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        }
+      },
+      "required": [
+        "appId",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_get_dev_status",
+    "description": "Get dev base release, revision, tree hash, dirty state and launch channel.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_list_dev_files",
+    "description": "List paths, sizes and SHA-256 values in the current dev tree.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_read_dev_file",
+    "description": "Read a bounded UTF-8 file from the current dev tree.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "appId",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_apply_dev_files",
+    "description": "Atomically create, overwrite, delete, move or rename text files in the dev tree using revision CAS.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative target path"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 524288,
+                "description": "UTF-8 text content"
+              },
+              "delete": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative move source"
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative move target"
+              },
+              "move": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "refreshMode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "description": "auto, reload or none"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Optional same-origin relative route"
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_sync_dev_changes",
+    "description": "Fast save path: commit only caller-known text changes in one atomic batch, then refresh the visible page. Reuse the cached device file manifest and call list_dev_files only on first sync, reconnect or explicit reconcile.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative target path"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 524288,
+                "description": "UTF-8 text content"
+              },
+              "delete": {
+                "type": "boolean"
+              },
+              "from": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative move source"
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Relative move target"
+              },
+              "move": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "refreshMode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "description": "auto, reload or none"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Optional same-origin relative route"
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_put_dev_file",
+    "description": "Prepare an authenticated HTTP PUT for one binary or large dev file. Send the bytes to the returned URL.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "contentType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Explicitly ignore the supplied revision and replace the current DEV tree"
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_replace_dev_tree",
+    "description": "Prepare an authenticated HTTP PUT that atomically replaces the dev tree from a ZIP.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Explicitly ignore the supplied revision and replace the current DEV tree"
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "sha256",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_open_app",
+    "description": "Open a happ entry or a same-origin relative route. Existing same-channel WebViews are reused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_reload_app",
+    "description": "Reload the visible happ in its existing WebView by default, optionally recreate the runtime, restore app state, and run a bounded post-refresh script only for a development copy.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "reload",
+            "recreate"
+          ],
+          "description": "reload reuses the current WebView and bypasses cache; recreate rebuilds the WebView runtime."
+        },
+        "restoreStateJson": {
+          "type": "string",
+          "maxLength": 524288,
+          "description": "JSON passed to window.haminnDevState.restore(state), or to the haminndevrestore event when the hook is absent."
+        },
+        "postReloadScript": {
+          "type": "string",
+          "maxLength": 65536,
+          "description": "JavaScript evaluated after refresh. Accepted only while this ordinary happ is running its development copy."
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_reload_shell",
+    "description": "Reload the visible HaminnUI in its existing WebView by default, optionally recreate the runtime, and invoke only the fixed HaminnUI restore hook. Arbitrary script input is never accepted.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runtimeMode": {
+          "type": "string",
+          "enum": [
+            "current",
+            "online",
+            "local"
+          ],
+          "description": "Keep the configured mode, or explicitly select the official online/local HaminnUI runtime before reloading."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "reload",
+            "recreate"
+          ],
+          "description": "reload reuses the current WebView and bypasses cache; recreate rebuilds the WebView runtime."
+        },
+        "restoreStateJson": {
+          "type": "string",
+          "maxLength": 524288,
+          "description": "JSON passed only to HaminnUI fixed window.haminnDevState.restore(state) hook."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_wait_dev_render",
+    "description": "Wait for the APK-injected render acknowledgement for one revision.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "operationId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_get_dev_diagnostics",
+    "description": "Return bounded navigation, resource and console warnings/errors for the current dev session.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_build_dev_package",
+    "description": "Validate and build a deterministic release ZIP without installing it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "versionCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "versionName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "versionCode",
+        "versionName"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_install_dev_package",
+    "description": "Install a prior dev build through the standard release transaction, then switch to stable.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "expectedDevRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "Current dev workspace revision"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "expectedStableReleaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "appId",
+        "expectedDevRevision",
+        "requestId",
+        "buildId",
+        "expectedStableReleaseId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_reset_dev_workspace",
+    "description": "Discard unpublished dev changes and rebuild from the current stable release.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        }
+      },
+      "required": [
+        "appId",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_list_releases",
+    "description": "List retained immutable stable releases, including version code and name for explicit update-dir preflight.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        }
+      },
+      "required": [
+        "appId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_rollback",
+    "description": "Switch to a retained stable release using CAS.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Haminn instance appId"
+        },
+        "releaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "expectedReleaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "description": "Unique idempotency key for this server run"
+        }
+      },
+      "required": [
+        "appId",
+        "releaseId",
+        "expectedReleaseId",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "haminn_open_agent_session",
+    "description": "Open or resume the global device development session. The session is not locked to one happ; every later operation supplies happId or appId.",
+    "inputSchema": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_resume_agent_session",
+    "description": "Return the current global device session and installed happ targets after a reconnect.",
+    "inputSchema": {"type":"object","properties":{},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_list_installed_happs",
+    "description": "List every ordinary installed happ available to this global agent session, without binding the session to one target.",
+    "inputSchema": {"type":"object","properties":{"includeIcons":{"type":"boolean"}},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_get_happ_dev_status",
+    "description": "Return the selected happ development version, revision, tree summary, runtime mode and stable release. Use this before asking the user which side should be authoritative.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80}},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_prepare_happ_development",
+    "description": "Resume or explicitly reset one installed happ development workspace, optionally entering DEV and opening it. This is a recommendation, not a mandatory workflow state machine.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"strategy":{"type":"string","enum":["resume","reset"]},"startRuntimeMode":{"type":"string","enum":["dev","unchanged"]},"route":{"type":"string","minLength":1,"maxLength":2048},"requestId":{"type":"string","minLength":8,"maxLength":128}},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_hot_update_happ",
+    "description": "Atomically apply a batch of text changes to a happ DEV tree, then refresh the visible page and reuse its cached development state when possible. Use force only when the user explicitly selected client overwrite.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"expectedDevRevision":{"type":"integer","minimum":1},"force":{"type":"boolean"},"requestId":{"type":"string","minLength":8,"maxLength":128},"files":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512},"content":{"type":"string","maxLength":524288},"delete":{"type":"boolean"},"from":{"type":"string","minLength":1,"maxLength":512},"to":{"type":"string","minLength":1,"maxLength":512},"move":{"type":"boolean"}},"required":[],"additionalProperties":false}},"refreshMode":{"type":"string","enum":["auto","reload","none"]},"route":{"type":"string","minLength":1,"maxLength":2048},"preserveState":{"type":"boolean"}},"required":["requestId","files"],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_download_dev_tree",
+    "description": "Create a bounded ZIP download of the selected happ DEV tree. The agent, not the device, decides how to compare or use the downloaded files.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"expectedDevRevision":{"type":"integer","minimum":1}},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_refresh_happ_page",
+    "description": "Refresh the selected foreground happ in its existing WebView, optionally navigating to a same-origin relative path/query/hash and preserving development state.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"route":{"type":"string","minLength":1,"maxLength":2048},"strategy":{"type":"string","enum":["reload","recreate"]},"preserveState":{"type":"boolean"},"restoreStateJson":{"type":"string","maxLength":524288}},"required":[],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_switch_happ_runtime_mode",
+    "description": "Explicitly switch one happ between DEV and stable runtime modes; this does not change its source, data or grants.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"runtimeMode":{"type":"string","enum":["dev","stable"]},"requestId":{"type":"string","minLength":8,"maxLength":128}},"required":["runtimeMode","requestId"],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_promote_dev_release",
+    "description": "Build and install the selected DEV revision as a stable release in one controlled operation, then keep the target running in DEV for continued work.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"expectedDevRevision":{"type":"integer","minimum":1},"expectedStableReleaseId":{"type":"string","minLength":1,"maxLength":80},"requestId":{"type":"string","minLength":8,"maxLength":128},"versionCode":{"type":"integer","minimum":1},"versionName":{"type":"string","minLength":1,"maxLength":80}},"required":["expectedDevRevision","expectedStableReleaseId","requestId","versionCode","versionName"],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":false}
+  },
+  {
+    "name": "haminn_install_happ_release",
+    "description": "Prepare a signed, bounded ZIP upload for final stable installation. Upload the returned URL, then explicitly switch the target to stable when the user confirms.",
+    "inputSchema": {"type":"object","properties":{"happId":{"type":"string","minLength":1,"maxLength":160},"appId":{"type":"string","minLength":1,"maxLength":80},"expectedReleaseId":{"type":"string","minLength":1,"maxLength":80},"requestId":{"type":"string","minLength":8,"maxLength":128},"sha256":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},"bytes":{"type":"integer","minimum":1,"maximum":67108864}},"required":["expectedReleaseId","requestId","sha256","bytes"],"additionalProperties":false},
+    "annotations": {"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}
+  }
+]

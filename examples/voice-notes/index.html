@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>语音笔记</title>
+<style>body{font:16px system-ui;margin:0;padding:24px;background:#f5f1e8;color:#17352b}main{max-width:680px;margin:auto}textarea{width:100%;min-height:170px;box-sizing:border-box;padding:14px;border:1px solid #b9c8c0;border-radius:12px}button{padding:10px 14px;border:0;border-radius:999px;margin:8px 5px 8px 0;background:#24513f;color:white}.note{padding:12px 0;border-bottom:1px solid #cbd4ce}.note p{white-space:pre-wrap}.note small{display:block;color:#64766e}.note button{padding:6px 11px}.muted{color:#64766e;font-size:13px}</style></head>
+<body><main><h1>语音笔记</h1><p class="muted">记录保存在 Haminn 的独立数据空间中。原始录音不依赖语音识别服务。</p><textarea id="text" placeholder="写下内容，或使用系统语音识别…"></textarea><div><button id="save">保存</button><button id="speak">朗读</button><button id="listen">语音输入</button><button id="record">录音附件</button><button id="attach">其他附件</button></div><p id="status" class="muted"></p><section id="notes"></section></main><script src="app.js"></script></body>
+</html>

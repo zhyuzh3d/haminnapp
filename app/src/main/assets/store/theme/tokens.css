@@ -1,0 +1,41 @@
+/* Shared semantic language; local files only, no remote fonts. */
+:root {
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  font-synthesis:none; -webkit-font-smoothing:antialiased;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+  --radius-sm:10px; --radius:16px; --radius-lg:24px;
+  color-scheme: light;
+  --bg:#f5f6f8; --surface:#ffffff; --surface-solid:#ffffff; --soft:#ececf2;
+  --ink:#111116; --muted:#5e5e6a; --disabled-ink:#62626d; --line:#d9d9e2; --highlight:#ffffff;
+  --primary:#007f44; --on-primary:#ffffff;
+  --blue:#006dff; --violet:#7628ef; --orange:#b54700; --green:#007f44;
+  --blue-bg:#e9f2ff; --violet-bg:#f2eaff; --orange-bg:#fff0e5; --green-bg:#e6f8ee;
+  --dev-card-bg:#ebfff3; --dev-card-line:#55d98a; --dev-badge-bg:#007f44; --dev-badge-ink:#ffffff;
+  --nav-inactive:#707079; --nav-active:#007f44;
+  --danger:#d0003a; --switch-off:#b9b9c3; --switch-knob:#ffffff; --shadow:0 3px 14px #13131a0a;
+  color:var(--ink); background:var(--bg);
+}
+:root[data-theme="dark"] {
+  color-scheme:dark;
+  --bg:#05050a; --surface:#15151e; --surface-solid:#1c1c27; --soft:#272733; --chrome:#0d0d15;
+  --ink:#ffffff; --muted:#b7b7c2; --disabled-ink:#92929c; --line:#3d3d4b; --highlight:#50505f;
+  --primary:#00f08a; --on-primary:#00140b;
+  --blue:#2997ff; --violet:#c66dff; --orange:#ff9d00; --green:#00f08a;
+  --blue-bg:#07192b; --violet-bg:#1c0d29; --orange-bg:#291800; --green-bg:#052018;
+  --dev-card-bg:#06291b; --dev-card-line:#00e881; --dev-badge-bg:#00e881; --dev-badge-ink:#00170d;
+  --nav-inactive:#888891; --nav-active:#00f08a;
+  --danger:#ff4d73; --switch-off:#42424b; --switch-knob:#ffffff; --shadow:none;
+}
+@media(prefers-color-scheme:dark) {
+:root:not([data-theme="light"]) {
+  color-scheme:dark;
+  --bg:#05050a; --surface:#15151e; --surface-solid:#1c1c27; --soft:#272733; --chrome:#0d0d15;
+  --ink:#ffffff; --muted:#b7b7c2; --disabled-ink:#92929c; --line:#3d3d4b; --highlight:#50505f;
+  --primary:#00f08a; --on-primary:#00140b;
+  --blue:#2997ff; --violet:#c66dff; --orange:#ff9d00; --green:#00f08a;
+  --blue-bg:#07192b; --violet-bg:#1c0d29; --orange-bg:#291800; --green-bg:#052018;
+  --dev-card-bg:#06291b; --dev-card-line:#00e881; --dev-badge-bg:#00e881; --dev-badge-ink:#00170d;
+  --nav-inactive:#888891; --nav-active:#00f08a;
+  --danger:#ff4d73; --switch-off:#42424b; --switch-knob:#ffffff; --shadow:none;
+}
+}

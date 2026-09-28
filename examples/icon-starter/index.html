@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>原生页面 · 图标入门</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header><span class="badge"><i class="fa-solid fa-bolt" aria-hidden="true"></i> NATIVE WEB</span><h1>简单，也可以很好用。</h1><p>三个源文件，直接运行。图标由 Haminn 离线提供。</p></header>
+  <main>
+    <section class="tiles" aria-label="三种图标样式">
+      <article><i class="fa-solid fa-camera" aria-hidden="true"></i><strong>实心</strong><code>fa-solid fa-camera</code></article>
+      <article><i class="fa-regular fa-heart" aria-hidden="true"></i><strong>常规</strong><code>fa-regular fa-heart</code></article>
+      <article><i class="fa-brands fa-github" aria-hidden="true"></i><strong>品牌</strong><code>fa-brands fa-github</code></article>
+    </section>
+    <section class="note"><label for="text">试写一条笔记</label><textarea id="text" placeholder="代码可以持续更新，记录留在自己的空间。"></textarea><button id="save" disabled><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>保存到 Haminn</button><p id="status" role="status">正在连接 Haminn…</p></section>
+  </main>
+</body>
+</html>

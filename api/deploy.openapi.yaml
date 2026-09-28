@@ -1,0 +1,57 @@
+openapi: 3.1.0
+info:
+  title: Haminn Developer Deploy
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:8765
+    description: ADB-forwarded device loopback
+  - url: https://{deviceLanIp}:8765
+    description: Ephemeral self-signed TLS; clients must use the out-of-band SPKI pin
+    variables:
+      deviceLanIp: { default: 192.168.1.100 }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  schemas:
+    Operation:
+      type: object
+      required: [operationId, appId, kind, state]
+      properties:
+        operationId: { type: string, format: uuid }
+        appId: { type: string, format: uuid }
+        kind: { type: string }
+        state: { enum: [queued, transferring, validating, committing, succeeded, failed] }
+security: [{ bearer: [] }]
+paths:
+  /v1/status:
+    get:
+      responses:
+        '200': { description: Active target and release }
+  /v1/apps/{appId}/release:
+    put:
+      parameters:
+        - { in: path, name: appId, required: true, schema: { type: string, format: uuid } }
+        - { in: header, name: Idempotency-Key, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+        - { in: header, name: X-Haminn-Expected-Release, required: false, schema: { type: string, format: uuid } }
+        - { in: header, name: X-Haminn-Content-SHA256, required: true, schema: { type: string, pattern: '^[0-9a-fA-F]{64}$' } }
+      requestBody:
+        required: true
+        content:
+          application/zip: { schema: { type: string, format: binary, maxLength: 67108864 } }
+      responses:
+        '200': { description: Release committed }
+        '409': { description: Concurrent update or active upload }
+  /v1/apps/{appId}/reload:
+    post:
+      parameters:
+        - { in: path, name: appId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Reload accepted by the visible target runtime }
+        '409': { description: Target runtime is not currently visible }
+  /v1/operations/{operationId}:
+    get:
+      parameters:
+        - { in: path, name: operationId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Operation, content: { application/json: { schema: { $ref: '#/components/schemas/Operation' } } } }
+        '404': { description: Not found for this target }
