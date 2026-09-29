@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shlex
 import shutil
 import stat
 import subprocess
@@ -62,6 +61,23 @@ class Device:
             if self.credential_file.is_symlink() or os.name != "nt" and self.credential_file.stat().st_mode & 0o077:
                 raise RuntimeError("Credential file must be private (chmod 600) and not a symlink")
             self.password = json.loads(self.credential_file.read_text())["password"]
+        if self.password is None:
+            self.password = reusable_password(self.base, root)
+
+    def remember(self):
+        """Persist a password that was reused for this address, so the next call is direct.
+
+        A credential write is a convenience, never a precondition: if the private
+        directory cannot be created the command still works, it just asks again
+        next time.
+        """
+        if not self.password or self.credential_file.exists():
+            return False
+        try:
+            self.save_password()
+        except (OSError, RuntimeError):
+            return False
+        return True
 
     def close(self):
         if self._connection is not None:
@@ -141,7 +157,13 @@ class Device:
             raise RuntimeError("Device HTTP error " + str(status)) from None
         except (OSError, http.client.HTTPException) as exc:
             self.close()
-            raise RuntimeError("无法连接旧的 Haminn 开发服务地址。请在手机打开 Haminn 应用，在开发配置中查看并提供当前开发服务地址。") from None
+            # Two very different causes share one symptom: the phone closed an idle
+            # keep-alive connection (transient — retry), or the development service
+            # is not there at all (the switch is off after an APK reinstall, or the
+            # address changed).  Carry the low-level cause so that neither an agent
+            # nor a person has to guess which one it is.
+            raise RuntimeError("Haminn 开发服务连接中断（" + type(exc).__name__ + ": " + str(exc) + "）。"
+                               "连接被重置可重试；Connection refused 通常表示手机上的开发开关未打开，或地址已改。") from None
 
     def rpc(self, method, params=None, request_id=1):
         message = {"jsonrpc": "2.0", "method": method}
@@ -191,6 +213,82 @@ def default_config_root():
     if os.name == "nt":
         return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "HaminnAgent"
     return Path.home() / ".config/haminn-agent"
+
+
+def reusable_password(base, root):
+    """A password this computer already proved on another address of the same LAN.
+
+    The phone keeps its six-character password when DHCP moves it, so someone who
+    has just given us the new address should not have to retype a secret we hold
+    for that same device. The reuse is deliberately narrow: another address in the
+    same /24, saved by a session that authenticated successfully. The address is
+    never taken from here — it always comes from the person — and a wrong guess
+    costs one 401, reported exactly as before.
+    """
+    try:
+        octets = (urllib.parse.urlsplit(base).hostname or "").split(".")
+        if len(octets) != 4:
+            return None
+        matches = []
+        for path in Path(root).glob("*.json"):
+            if path.name.endswith(".watch.json") or path.is_symlink():
+                continue
+            try:
+                if os.name != "nt" and path.stat().st_mode & 0o077:
+                    continue
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(saved, dict) or not isinstance(saved.get("password"), str):
+                    continue
+                other = urllib.parse.urlsplit(str(saved.get("address") or "")).hostname or ""
+                if other.split(".")[:3] != octets[:3]:
+                    continue
+                matches.append((path.stat().st_mtime, saved["password"]))
+            except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+                continue
+        return max(matches)[1] if matches else None
+    except (OSError, ValueError):
+        return None
+
+
+def plugin_directory():
+    """Where the helper that is running actually lives."""
+    return Path(__file__).resolve().parent
+
+
+def helper_digest():
+    """SHA-256 of the helper bytes that are running, not of a version label."""
+    try:
+        with open(Path(__file__).resolve(), "rb") as source:
+            return hashlib.sha256(source.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def plugin_freshness(device):
+    """Whether the helper running here is the one the phone is serving.
+
+    Bytes, not a version string.  The local helper is a copy by definition, and a
+    copy that was half-synced or hand-edited keeps its old version label while
+    behaving differently — measured on 2026-09-29, the copy in this machine's skill
+    directory still claimed version 1.12.0 next to a 1.12.3 helper, so a version
+    comparison would have called a current helper stale.  The device advertises the
+    digest of its own asset, which makes the comparison exact.  A mismatch is
+    repaired by taking the served files again (`GET /haminn-agent.py` and
+    `GET /skills/haminn-dev-plugin/SKILL.md`), or by `install-plugin --force` when
+    the copy to refresh is a plugin directory — never by retrying.
+    """
+    local = helper_digest()
+    try:
+        bootstrap = device.bootstrap()
+    except (OSError, RuntimeError) as error:
+        return {"helperSha256": local, "deviceSha256": None, "stale": None, "error": str(error)}
+    install = bootstrap.get("install") or {}
+    expected = ((install.get("installer") or {}).get("sha256")
+                or (install.get("fallback") or {}).get("helperSha256"))
+    stale = bool(local and expected and local != expected)
+    return {"helperSha256": local, "deviceSha256": expected, "stale": stale,
+            "serverVersion": bootstrap.get("serverVersion"), "helperPath": str(Path(__file__).resolve()),
+            "fix": "re-fetch GET /haminn-agent.py over this file" if stale else None}
 
 
 HOST_CAPABILITIES = (
@@ -337,11 +435,11 @@ def source_files(directory, roots=None):
     return sorted(result)
 
 
-def development_files(directory):
+def development_roots(directory):
+    """The top-level roots the device accepts, or None when the package is undeclared."""
     root = Path(directory).resolve(strict=True)
-    install = root / "haminn-install.json"
     try:
-        descriptor = json.loads(install.read_text(encoding="utf-8"))
+        descriptor = json.loads((root / "haminn-install.json").read_text(encoding="utf-8"))
         package_name = descriptor["package"]
         package = (root / package_name).resolve(strict=True)
         if root not in package.parents or package.suffix.lower() != ".zip":
@@ -351,9 +449,49 @@ def development_files(directory):
         roots = sorted({name.split("/", 1)[0] for name in names})
         if "haminn.json" not in roots or not roots:
             raise ValueError("package scope")
-        return source_files(root, roots)
+        return root, roots
     except (OSError, UnicodeError, KeyError, TypeError, ValueError, json.JSONDecodeError, zipfile.BadZipFile):
+        return root, None
+
+
+def development_files(directory):
+    root, roots = development_roots(directory)
+    if roots is None:
         return source_files(root)
+    try:
+        return source_files(root, roots)
+    except (OSError, ValueError):
+        # A declared root that is missing locally falls back to the whole directory,
+        # which is how this behaved before the scope was read separately.
+        return source_files(root)
+
+
+def development_scope(directory, sample=20):
+    """Which files of a local working copy can never be published, and why.
+
+    The device accepts only the top-level roots named by the package ZIP in
+    haminn-install.json, so a scratch note, an editor backup or a packaging output
+    sitting next to them is invisible to the watcher no matter how often it is
+    saved.  Measured on 2026-09-28: a probe file at a repository root read as a
+    silently dropped save (`published=0`), when in fact it had never been in scope.
+    Saying so at prepare time is what turns that into a one-line answer.
+    """
+    try:
+        root, roots = development_roots(directory)
+        if roots is None:
+            return {"scope": "whole-directory", "excluded": [], "excludedCount": 0}
+        included = {name for name, _ in development_files(root)}
+        excluded = []
+        for current, dirs, files in os.walk(root, followlinks=False):
+            dirs[:] = sorted(name for name in dirs if name not in IGNORE)
+            for name in files:
+                relative = Path(current, name).relative_to(root).as_posix()
+                if name not in IGNORE and relative not in included:
+                    excluded.append(relative)
+        return {"scope": "haminn-install.json", "roots": roots,
+                "excludedCount": len(excluded), "excluded": sorted(excluded)[:sample]}
+    except (OSError, UnicodeError, ValueError):
+        return {"scope": "unknown", "excluded": [], "excludedCount": 0}
 
 
 def development_signature(directory, files=None):
@@ -428,6 +566,90 @@ def ensure_dev_target(device, app_id):
     if current.get("appId") == app_id and current.get("launchChannel") == "dev":
         return current
     return device.tool("haminn_enter_dev_mode", {"appId": app_id, "requestId": str(uuid.uuid4())})
+
+
+def claim_foreground(device, app_id):
+    """Claim the one foreground DEV runtime for app_id; report the switch, or None.
+
+    A device has exactly one foreground runtime, and it is that runtime — not the
+    appId a request happens to name — that receives the render acknowledgement and
+    owns the development watch channel.  A happ that is not in front can therefore
+    commit a revision and still be impossible to *see*: measured on 2026-09-28, a
+    second happ taking the runtime was enough to answer a prepare with
+    `refreshState: "not-visible"` and no `renderOperationId`, and to drop a running
+    watcher's channel.  So everything whose result must be visible claims the
+    foreground first instead of assuming it still holds it.
+    """
+    current = device.tool("haminn_runtime_status")
+    if current.get("appId") == app_id and current.get("launchChannel") == "dev":
+        return None
+    entered = device.tool("haminn_enter_dev_mode", {"appId": app_id, "requestId": str(uuid.uuid4())})
+    return {"event": "foreground-claimed", "appId": app_id, "tookOverFrom": current.get("appId"),
+            "previousChannel": current.get("launchChannel"), "renderOperationId": entered.get("renderOperationId")}
+
+
+def await_render(device, app_id, operation_id, timeout_ms=5000, claim=True):
+    """Wait for a render acknowledgement, re-claiming a lost foreground once.
+
+    The acknowledgement is sent by whichever happ is in front, so a lost
+    foreground arrives as a render timeout rather than as a broken page.  One
+    re-claim tells those two apart — the entry itself schedules a fresh render —
+    and a second timeout is a real failure, reported as one.  Returns
+    (rendered, claimed).  With claim=False the foreground is left alone, so a
+    timeout is reported as a timeout instead of being retried.
+    """
+    rendered = None
+    if operation_id:
+        rendered = device.tool("haminn_wait_dev_render", {"operationId": operation_id, "timeoutMs": timeout_ms})
+        if rendered.get("state") == "rendered":
+            return rendered, None
+    if not claim:
+        return rendered, None
+    claimed = claim_foreground(device, app_id)
+    if claimed is None or not claimed.get("renderOperationId"):
+        return rendered, claimed
+    rendered = device.tool("haminn_wait_dev_render", {"operationId": claimed["renderOperationId"], "timeoutMs": 8000})
+    return rendered, claimed
+
+
+def refresh_page(device, app_id, preserve_state=True):
+    """Ask the device to re-run the page of a happ that is already the target's.
+
+    A publish answered with `refreshState: "not-visible"` means the revision was
+    committed but no page picked it up — the runtime is ours already, so merely
+    "being in front" was not enough to make it re-read the tree.  This is the step
+    that turns such a commit into something the developer can actually look at.  It
+    returns no render operation, so callers confirm with `visible_page` rather than
+    by waiting.
+    """
+    try:
+        return device.tool("haminn_refresh_happ_page",
+                           {"appId": app_id, "strategy": "reload", "preserveState": preserve_state})
+    except (OSError, RuntimeError) as error:
+        return {"state": "failed", "error": str(error)}
+
+
+def visible_page(device, app_id, attempts=6, delay=0.25):
+    """Whether the phone is actually showing app_id's development copy.
+
+    The render acknowledgement is the cheap path, but it is not always available:
+    a publish that lands while the target's runtime is still being created is
+    answered `refreshState: "not-visible"` with no render operation at all, and the
+    old helper counted that as `prepared: true` — a success it had no evidence for.
+    Reading the visible page answers the question the flag was pretending to answer,
+    because the service answers only for the copy in front (anything else is
+    rejected with `E_INVALID_ARGUMENT: 必须指定当前前台 happ 的 appId`).  The retries
+    cover the race rather than deciding it: a runtime that is still being built
+    becomes visible a moment later, and that is a success, not a failure.
+    """
+    for attempt in range(attempts):
+        try:
+            device.tool("haminn_get_page_state", {"appId": app_id})
+            return True
+        except (OSError, RuntimeError):
+            if attempt + 1 < attempts:
+                time.sleep(delay)
+    return False
 
 
 def remote_workspace(device, app_id, workspace_cache=None):
@@ -587,7 +809,7 @@ def dev_sync(device, app_id, directory, ensure_target=True, hash_cache=None, wor
     return result
 
 
-def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, workspace_cache=None, sync_policy="ask"):
+def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, workspace_cache=None, sync_policy="ask", claim=True):
     # reuse the exact happId binding in ~/haminn/happ-dev.json; never scan the disk or silently create a second copy.
     root = Path(directory).resolve(strict=True)
     try:
@@ -597,6 +819,14 @@ def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, worksp
     happ_id = manifest.get("happId")
     if not isinstance(happ_id, str) or not happ_id.strip():
         raise ValueError("Local haminn.json must declare a stable happId")
+    # Say which local files the device will never accept before spending a device
+    # round-trip on the ones it will.
+    scope = development_scope(root)
+    if scope.get("excludedCount"):
+        print(json.dumps({"event": "outside-development-scope", "scope": scope.get("scope"),
+                          "excludedCount": scope["excludedCount"], "excluded": scope["excluded"],
+                          "note": "这些文件不在 haminn-install.json 声明的开发树内，保存它们永远不会同步到设备。"},
+                         ensure_ascii=False), file=sys.stderr, flush=True)
     apps = device.tool("haminn_list_apps", {"includeIcons": False, "happId": happ_id}).get("apps", [])
     matches = [item for item in apps if item.get("happId") == happ_id]
     if selected_app_id:
@@ -612,15 +842,26 @@ def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, worksp
         })
     except Exception:
         # Keep the helper usable while an older APK is being replaced.
-        status = ensure_dev_target(device, app_id)
-        result = dev_sync(device, app_id, root, ensure_target=False, hash_cache=hash_cache, workspace_cache=workspace_cache)
+        status = ensure_dev_target(device, app_id) if claim else device.tool("haminn_runtime_status")
+        result = dev_sync(device, app_id, root, ensure_target=claim, hash_cache=hash_cache, workspace_cache=workspace_cache)
         render_operation = result.get("renderOperationId") or status.get("renderOperationId")
-        rendered = device.tool("haminn_wait_dev_render", {"operationId": render_operation, "timeoutMs": 5000}) if render_operation else None
-        return {"prepared": rendered is None or rendered.get("state") == "rendered",
-                "happId": happ_id, "appId": app_id, "status": status, "sync": result, "render": rendered}
+        rendered, reclaimed = await_render(device, app_id, render_operation, claim=claim)
+        demonstrated = visible_page(device, app_id)
+        return {"prepared": demonstrated, "scope": scope,
+                "happId": happ_id, "appId": app_id, "status": status, "sync": result, "render": rendered,
+                "renderAcknowledged": (rendered or {}).get("state") == "rendered",
+                "pageVisible": demonstrated, "foregroundClaimed": reclaimed is not None}
     local_version = manifest.get("version") if isinstance(manifest.get("version"), dict) else {}
     remote_version = status.get("devVersion") if isinstance(status.get("devVersion"), dict) else {}
     versions_differ = local_version != remote_version
+    # Resuming the workspace does not take the runtime back from another happ, and
+    # only the runtime in front can acknowledge a render. Claim it now, so that
+    # `prepared: true` means "visible and rendered" rather than "committed in the
+    # background where nobody can see it". With claim=False the foreground is left
+    # to whoever holds it, and an invisible target is reported as invisible.
+    claimed = claim_foreground(device, app_id) if claim else None
+    if claimed is not None:
+        print(json.dumps(claimed, ensure_ascii=False), file=sys.stderr, flush=True)
     policy = sync_policy
     if policy == "ask":
         print(json.dumps({"happId": happ_id, "appId": app_id, "localVersion": local_version,
@@ -638,21 +879,26 @@ def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, worksp
         raise RuntimeError("设备为准已确认；请先调用 haminn_download_dev_tree 下载开发树，再重新绑定本地目录")
     if policy == "download":
         downloaded = download_dev_tree(device, app_id)
-        return {"prepared": True, "happId": happ_id, "appId": app_id, "status": status, "download": downloaded}
+        return {"prepared": True, "scope": scope, "happId": happ_id, "appId": app_id, "status": status, "download": downloaded}
     if policy == "client":
         result = replace_dev_tree(device, app_id, root, status["revision"], force=True)
         if workspace_cache is not None:
             workspace_cache.clear()
             workspace_cache.update(local_workspace_state(app_id, development_files(root), result["revision"], result.get("treeHash")))
     else:
-        result = dev_sync(device, app_id, root, ensure_target=False, hash_cache=hash_cache, workspace_cache=workspace_cache)
-    render_operation = result.get("renderOperationId")
-    rendered = None
-    if render_operation:
-        rendered = device.tool("haminn_wait_dev_render", {"operationId": render_operation, "timeoutMs": 5000})
-    return {"prepared": rendered is None or rendered.get("state") == "rendered",
+        result = dev_sync(device, app_id, root, ensure_target=claim, hash_cache=hash_cache, workspace_cache=workspace_cache)
+    rendered, reclaimed = await_render(device, app_id, result.get("renderOperationId"), claim=claim)
+    if reclaimed is not None:
+        print(json.dumps(reclaimed, ensure_ascii=False), file=sys.stderr, flush=True)
+    # `prepared` is a promise that the developer can look at the phone, so it is
+    # decided by evidence — the page being the visible one — and not by the absence
+    # of a complaint.
+    demonstrated = visible_page(device, app_id)
+    return {"prepared": demonstrated, "scope": scope,
             "happId": happ_id, "appId": app_id, "status": status, "sync": result,
-            "render": rendered}
+            "render": rendered, "renderAcknowledged": (rendered or {}).get("state") == "rendered",
+            "pageVisible": demonstrated,
+            "foregroundClaimed": claimed is not None or reclaimed is not None}
 
 
 def release_manifest(directory):
@@ -750,62 +996,232 @@ def update_dir(device, directory, selected_app_id=None, bump="none"):
     }
 
 
-def watch_development(device, app_id, directory, already_synced=False, quiet=False, hash_cache=None, workspace_cache=None):
+def watch_status_path(device, explicit=None):
+    """Where this phone's watcher state lives: one document per device address."""
+    if explicit:
+        return Path(explicit)
+    return default_config_root() / (hashlib.sha1(device.base.encode("utf-8")).hexdigest() + ".watch.json")
+
+
+def status_report(device, explicit_path=None, app_id=None):
+    """One read that answers "is the watcher still watching, and at what".
+
+    `develop-dir` runs for hours, and asking about it used to mean reading a JSON
+    file by hand and then probing the device for the same facts a second time.
+    Both halves already exist — on disk and on the phone — so this joins them, and
+    reports the device error instead of failing when the phone is simply not there.
+    """
+    path = watch_status_path(device, explicit_path)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        document = None
+    report = {"statusFile": str(path),
+              "watcherAlive": isinstance(document, dict) and watcher_alive(document),
+              "watcher": document}
+    target = app_id or (document or {}).get("appId")
+    try:
+        report["runtime"] = device.tool("haminn_runtime_status")
+        if target:
+            report["dev"] = device.tool("haminn_get_happ_dev_status", {"appId": target})
+    except (OSError, RuntimeError) as error:
+        report["deviceError"] = str(error)
+    report["plugin"] = plugin_freshness(device)
+    return report
+
+
+class WatchStatus:
+    """The watcher's own state on disk, so that nobody has to guess about it.
+
+    `develop-dir` is long-lived, and its whole visible output used to be one JSON
+    document at start-up: anything that went wrong afterwards — a lost foreground,
+    a reset connection — was invisible except as a sentence on stderr, so finding
+    out whether the watcher was still watching meant probing the device again. The
+    same document is also a device-wide lock. One phone has one foreground runtime
+    and two watchers would take it from each other, so a second watcher is refused
+    while the first one is still alive.
+    """
+
+    STALE_SECONDS = 60
+
+    def __init__(self, device, app_id, directory, path=None, take_over=False):
+        self.path = watch_status_path(device, path)
+        self.document = {
+            "schema": 1, "appId": app_id, "base": device.base,
+            "directory": str(Path(directory).resolve()), "pid": os.getpid(),
+            "state": "starting", "targetReady": False, "revision": None, "syncs": 0, "published": 0,
+            "lastChangedPaths": [], "lastEvent": None,
+            "startedAt": int(time.time()), "updatedAt": int(time.time()),
+        }
+        self.hold(take_over)
+        self.update(state="starting")
+
+    def hold(self, take_over=False):
+        """Refuse to run beside a live watcher on the same phone."""
+        try:
+            previous = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            previous = None
+        if isinstance(previous, dict) and not take_over and watcher_alive(previous):
+            age = int(time.time() - float(previous.get("updatedAt") or 0))
+            raise RuntimeError(
+                "Another watcher is live on this phone for " + str(previous.get("appId")) + " in "
+                + str(previous.get("directory")) + " (heartbeat " + str(age) + "s ago). One phone has one "
+                "foreground runtime, so two watchers would take it from each other: stop that one, or pass "
+                "--take-over. Status file: " + str(self.path))
+
+    def update(self, **fields):
+        self.document.update(fields)
+        self.document["updatedAt"] = int(time.time())
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            pending = self.path.with_name(self.path.name + ".pending")
+            pending.write_text(json.dumps(self.document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(pending, self.path)
+        except OSError:
+            pass  # a status file must never take the watcher down
+
+    def note(self, name, **fields):
+        """Record a notable event and say it out loud; returns the record."""
+        record = dict({"event": name}, **fields)
+        self.update(lastEvent=record)
+        print("Haminn watch " + name + ": " + json.dumps(record, ensure_ascii=False), file=sys.stderr, flush=True)
+        return record
+
+    def release(self):
+        try:
+            if json.loads(self.path.read_text(encoding="utf-8")).get("pid") == os.getpid():
+                self.path.unlink()
+        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+            pass
+
+
+def watcher_alive(document):
+    """Whether the watcher that wrote this document is still running.
+
+    A stale heartbeat is not proof of death (a device stall can stop it) and a live
+    pid is not proof of life (a pid can be recycled), so require both where the
+    platform can tell us, and settle for the heartbeat window where it cannot.
+    """
+    fresh = time.time() - float(document.get("updatedAt") or 0) < WatchStatus.STALE_SECONDS
+    if os.name != "posix":
+        return fresh
+    try:
+        os.kill(int(document.get("pid") or 0), 0)
+    except (ProcessLookupError, ValueError):
+        return False
+    except OSError:
+        pass
+    return fresh
+
+
+def watch_development(device, app_id, directory, already_synced=False, quiet=False, hash_cache=None,
+                      workspace_cache=None, status=None, claim=True):
     tracked = development_files(directory)
     hash_cache = {} if hash_cache is None else hash_cache
     previous = development_signature(directory, tracked) if already_synced else None
     target_ready = already_synced
     reconnect_delay = 0.5
     last_heartbeat = time.monotonic()
-    while True:
-        # Do not hash the whole tree every 100 ms. Stat metadata catches normal
-        # editor saves; dev_sync performs the authoritative SHA-256 comparison
-        # once the debounce window has settled.
-        snapshot = development_signature(directory, tracked)
-        if snapshot != previous:
-            time.sleep(0.15)
-            stable = development_signature(directory, tracked)
-            if stable == snapshot:
+    status = WatchStatus(device, app_id, directory) if status is None else status
+    status.update(state="watching", appId=app_id, targetReady=target_ready)
+    try:
+        while True:
+            # Do not hash the whole tree every 100 ms. Stat metadata catches normal
+            # editor saves; dev_sync performs the authoritative SHA-256 comparison
+            # once the debounce window has settled.
+            snapshot = development_signature(directory, tracked)
+            if snapshot != previous:
+                time.sleep(0.15)
+                stable = development_signature(directory, tracked)
+                if stable == snapshot:
+                    try:
+                        # The host owns the foreground, not the phone: before every
+                        # update, make this happ the one in front.  Only the runtime
+                        # in front can acknowledge a render, and a change the developer
+                        # cannot see is not an update.  `ensure_target` also re-enters
+                        # DEV mode if another client left it in between.  With
+                        # claim=False the foreground is left to whoever holds it, and
+                        # the publish is reported exactly as it landed.
+                        published = dev_sync(device, app_id, directory, ensure_target=claim, hash_cache=hash_cache, workspace_cache=workspace_cache)
+                    except (OSError, RuntimeError) as error:
+                        status.note("waiting-for-device", error=str(error))
+                        # A reconnect may land on a phone where DEV mode was left by
+                        # another client, the target was recreated, or another happ
+                        # took the foreground.  Force the next successful publish to
+                        # re-check/enter DEV once; do not pay that round-trip on
+                        # every ordinary save.
+                        target_ready = False
+                        if workspace_cache is not None:
+                            workspace_cache.clear()
+                        time.sleep(reconnect_delay)
+                        reconnect_delay = min(reconnect_delay * 2, 5.0)
+                        try:
+                            device.initialize()
+                        except (OSError, RuntimeError):
+                            pass
+                        continue
+                    if not quiet:
+                        print(json.dumps(published, ensure_ascii=False), flush=True)
+                    if published.get("refreshState") == "not-visible" and claim:
+                        # Committed but nothing picked it up.  The host owns the
+                        # foreground, so put the target back in front and re-run its
+                        # page: an update the developer cannot see is not an update.
+                        target_ready = False
+                        claimed_now = claim_foreground(device, app_id)
+                        shown = refresh_page(device, app_id)
+                        status.note("publish-not-visible", revision=published.get("revision"),
+                                    claimed=claimed_now is not None, refresh=shown.get("state"))
+                    elif published.get("refreshState") == "not-visible":
+                        target_ready = False
+                        status.note("publish-not-visible", revision=published.get("revision"),
+                                    claimed=False, refresh="left-alone")
+                    tracked = development_files(directory)
+                    live_names = {name for name, _ in tracked}
+                    for name in set(hash_cache) - live_names:
+                        hash_cache.pop(name, None)
+                    # `syncs` counts settled saves that were examined; `published`
+                    # counts the ones that actually changed the device tree — a save
+                    # outside the development scope is a sync but not a publish.
+                    changed_paths = published.get("changedPaths") or []
+                    status.update(state="watching", revision=published.get("revision"), targetReady=target_ready,
+                                  syncs=status.document.get("syncs", 0) + 1,
+                                  published=status.document.get("published", 0) + (1 if changed_paths else 0),
+                                  lastChangedPaths=changed_paths)
+                    previous = development_signature(directory, tracked)
+                    reconnect_delay = 0.5
+                    last_heartbeat = time.monotonic()
+            if time.monotonic() - last_heartbeat >= 20:
                 try:
-                    published = dev_sync(device, app_id, directory, ensure_target=not target_ready, hash_cache=hash_cache, workspace_cache=workspace_cache)
+                    device.rpc("ping")
+                    last_heartbeat = time.monotonic()
                 except (OSError, RuntimeError) as error:
-                    print("Haminn watch waiting for device: " + str(error), file=sys.stderr, flush=True)
-                    # A reconnect may land on a phone where DEV mode was left
-                    # by another client or the target was recreated.  Force
-                    # the next successful publish to re-check/enter DEV once;
-                    # do not pay that round-trip on every ordinary save.
+                    status.note("connection-reset", error=str(error))
                     target_ready = False
                     if workspace_cache is not None:
                         workspace_cache.clear()
                     time.sleep(reconnect_delay)
                     reconnect_delay = min(reconnect_delay * 2, 5.0)
+                else:
+                    # The heartbeat is also where a watcher notices that another
+                    # happ took the single foreground runtime: from that moment its
+                    # channel is gone and nothing it publishes can be seen.  Flag it
+                    # here and let the next save claim the foreground back, rather
+                    # than taking the runtime away from a phone someone is using.
                     try:
-                        device.initialize()
-                    except (OSError, RuntimeError):
-                        pass
-                    continue
-                if not quiet:
-                    print(json.dumps(published, ensure_ascii=False), flush=True)
-                tracked = development_files(directory)
-                live_names = {name for name, _ in tracked}
-                for name in set(hash_cache) - live_names:
-                    hash_cache.pop(name, None)
-                previous = development_signature(directory, tracked)
-                target_ready = True
-                reconnect_delay = 0.5
-                last_heartbeat = time.monotonic()
-        if time.monotonic() - last_heartbeat >= 20:
-            try:
-                device.rpc("ping")
-                last_heartbeat = time.monotonic()
-            except (OSError, RuntimeError) as error:
-                print("Haminn watch connection reset: " + str(error), file=sys.stderr, flush=True)
-                target_ready = False
-                if workspace_cache is not None:
-                    workspace_cache.clear()
-                time.sleep(reconnect_delay)
-                reconnect_delay = min(reconnect_delay * 2, 5.0)
-        time.sleep(0.1)
+                        current = device.tool("haminn_runtime_status")
+                    except (OSError, RuntimeError) as error:
+                        status.note("foreground-check-failed", error=str(error))
+                    else:
+                        if current.get("appId") != app_id or current.get("launchChannel") != "dev":
+                            if target_ready:
+                                status.note("foreground-lost", reason="heartbeat",
+                                            foregroundAppId=current.get("appId"))
+                            target_ready = False
+                status.update(targetReady=target_ready)
+            time.sleep(0.1)
+    finally:
+        status.release()
 
 
 def deploy(device, app_id, directory, expected_release=None):
@@ -819,52 +1235,6 @@ def deploy(device, app_id, directory, expected_release=None):
         data = archive.read()
     headers = {"Content-Type": "application/zip", "X-Haminn-Expected-Release": release, "Idempotency-Key": str(uuid.uuid4()), "X-Haminn-Content-SHA256": hashlib.sha256(data).hexdigest()}
     return json.loads(device.request("/v1/apps/" + urllib.parse.quote(app_id, safe="") + "/release", "PUT", data, headers))
-
-
-def ensure_codex_marketplace(target):
-    """Expose the standard ~/plugins target through Codex's personal marketplace."""
-    defaults = {(Path.home() / "plugins" / name).absolute() for name in PLUGIN_IDS}
-    if target not in defaults:
-        return None
-    marketplace = (Path.home() / ".agents" / "plugins" / "marketplace.json").absolute()
-    if marketplace.is_symlink():
-        raise RuntimeError("Refusing a symlinked Codex marketplace file")
-    if marketplace.exists():
-        try:
-            payload = json.loads(marketplace.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise RuntimeError("Codex personal marketplace is not valid JSON") from error
-        if not isinstance(payload, dict) or payload.get("name") != "personal":
-            raise RuntimeError("Codex personal marketplace name is not 'personal'; it was not changed")
-        plugins = payload.get("plugins")
-        if not isinstance(plugins, list):
-            raise RuntimeError("Codex personal marketplace plugins must be an array")
-    else:
-        payload = {"name": "personal", "interface": {"displayName": "Personal"}, "plugins": []}
-        plugins = payload["plugins"]
-    name = target.name
-    entry = {
-        "name": name,
-        "source": {"source": "local", "path": "./plugins/" + name},
-        "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
-        "category": "Developer Tools",
-    }
-    plugins[:] = [item for item in plugins
-                  if not (isinstance(item, dict) and item.get("name") in PLUGIN_IDS)]
-    plugins.append(entry)
-    marketplace.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = marketplace.with_name("." + marketplace.name + ".tmp-" + uuid.uuid4().hex)
-    try:
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        try:
-            temporary.chmod(0o600)
-        except OSError:
-            pass
-        os.replace(temporary, marketplace)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-    return marketplace
 
 
 def install_plugin(device, directory=None, force=False, package_url=None, package_sha256=None, plugin_version=None):
@@ -914,15 +1284,12 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
         if manifest.get("packageFormat") != "codex-plugin-archive-v1":
             raise RuntimeError("Haminn 插件包格式不是当前 Codex 插件格式")
         codex_manifest_file = staging_path / ".codex-plugin" / "plugin.json"
-        mcp_config_file = staging_path / ".mcp.json"
-        if not codex_manifest_file.is_file() or not mcp_config_file.is_file():
-            raise RuntimeError("Haminn 插件包缺少 Codex plugin.json 或 MCP 配置")
+        if not codex_manifest_file.is_file():
+            raise RuntimeError("Haminn 插件包缺少 Codex plugin.json")
         codex_manifest = json.loads(codex_manifest_file.read_text(encoding="utf-8"))
         if (codex_manifest.get("name") not in PLUGIN_IDS or
-                codex_manifest.get("version") != manifest.get("codexVersion") or
-                codex_manifest.get("mcpServers") != "./.mcp.json"):
+                codex_manifest.get("version") != manifest.get("codexVersion")):
             raise RuntimeError("Haminn Codex 插件清单不匹配")
-        marketplace = ensure_codex_marketplace(target) if target == default_target else None
         if not force and target.is_dir() and (target / "manifest.json").is_file():
             try:
                 old = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
@@ -930,12 +1297,9 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
                 if (old.get("id") == manifest.get("id") and
                         old.get("version") == manifest.get("version") and
                         marker.is_file() and marker.read_text(encoding="ascii").strip() == actual):
-                    result = {"installed": True, "installedPath": str(target), "mcpRegistered": False, "authenticated": False,
-                              "action": "unchanged", "plugin": manifest,
-                              "nextAction": "register_mcp_then_authenticate"}
-                    if marketplace:
-                        result["marketplace"] = str(marketplace)
-                    return result
+                    return {"installed": True, "installedPath": str(target), "authenticated": False,
+                            "action": "unchanged", "plugin": manifest,
+                            "nextAction": "authenticate"}
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
         backup = target.with_name(target.name + ".previous")
@@ -959,48 +1323,42 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
             (target / ".haminn-package-sha256").chmod(0o600)
         except OSError:
             pass
-        result = {"installed": True, "installedPath": str(target), "mcpRegistered": False, "authenticated": False,
+        result = {"installed": True, "installedPath": str(target), "authenticated": False,
                   "action": "updated" if had_target else "installed", "plugin": manifest,
-                  "nextAction": "register_mcp_then_authenticate", "serverVersion": bootstrap.get("serverVersion")}
-        if marketplace:
-            result["marketplace"] = str(marketplace)
+                  "nextAction": "authenticate", "serverVersion": bootstrap.get("serverVersion")}
         return result
 
 
-def stdio(device):
-    # Transparent JSON-lines MCP adapter. No banners or secrets on stdout.
-    for line in sys.stdin:
-        request = None
-        try:
-            if len(line) > 4 * 1024 * 1024:
-                raise ValueError("Request exceeds size limit")
-            request = json.loads(line)
-            if not isinstance(request, dict):
-                raise ValueError("Expected JSON object")
-            reply = device.request("/mcp", "POST", json.dumps(request).encode(), {"Content-Type": "application/json"})
-            if reply:
-                print(reply.decode(), flush=True)
-        except Exception as error:
-            if isinstance(request, dict) and "id" in request:
-                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32603, "message": str(error)}}), flush=True)
-            else:
-                print("Haminn adapter request failed", file=sys.stderr, flush=True)
+def add_watch_status_arguments(parser):
+    parser.add_argument("--status-file",
+                        help="Where to write the watcher's state document (default: beside the stored credential)")
+    parser.add_argument("--take-over", action="store_true",
+                        help="Replace a watcher that is already live on this phone")
+
+
+def add_claim_argument(parser):
+    parser.add_argument("--no-claim", action="store_true",
+                        help="Publish without taking the phone's single foreground runtime; the target may then stay invisible")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--address", required=True, help="HTTP base URL shown on phone (not /mcp)")
+    parser.add_argument("--address", required=True, help="HTTP base URL shown on phone")
     commands = parser.add_subparsers(dest="command", required=True)
     connect = commands.add_parser("connect", help="Privately enter/replace and save the shared password")
     connect.add_argument("--show-guide", action="store_true", help="Print the full current guide after connecting")
     commands.add_parser("guide")
     commands.add_parser("tools")
     commands.add_parser("doctor", help="Cache what this host machine actually has; never installs anything")
+    status = commands.add_parser("status", help="Read the watcher state and the phone's current runtime in one call")
+    status.add_argument("--status-file"); status.add_argument("--app-id")
     call = commands.add_parser("call"); call.add_argument("tool"); call.add_argument("arguments", nargs="?", default="{}")
     for name in ("deploy-dir", "sync-dir", "watch"):
         cmd = commands.add_parser(name); cmd.add_argument("app_id"); cmd.add_argument("directory")
         if name == "watch":
             cmd.add_argument("--quiet", action="store_true", help="Print only connection errors while watching")
+            add_watch_status_arguments(cmd)
+            add_claim_argument(cmd)
     for name, help_text in (
         ("prepare-dir", "Match, enter DEV, sync a local happ directory and await render"),
         ("develop-dir", "Prepare a local happ once, then continuously sync settled saves"),
@@ -1010,8 +1368,11 @@ def main():
         prepare.add_argument("directory"); prepare.add_argument("--app-id")
         prepare.add_argument("--sync-policy", choices=("ask", "client", "device", "download", "continue"), default="ask",
                              help="整体同步方向；ask 比较本地和设备开发版本后询问")
+        if name in ("prepare-dir", "develop-dir"):
+            add_claim_argument(prepare)
         if name == "develop-dir":
             prepare.add_argument("--quiet", action="store_true", help="Suppress per-save sync results")
+            add_watch_status_arguments(prepare)
         if name == "update-dir":
             prepare.add_argument("--bump", choices=("patch", "minor", "major", "none"), default="none",
                                  help="Explicitly update haminn.json version before stable installation")
@@ -1026,35 +1387,34 @@ def main():
     plugin.add_argument("--package-url", help="Same-origin package URL already obtained from Bootstrap")
     plugin.add_argument("--package-sha256", help="Expected package digest already obtained from Bootstrap")
     plugin.add_argument("--plugin-version", help="Plugin version already obtained from Bootstrap")
-    commands.add_parser("client-config")
-    commands.add_parser("stdio")
     args = parser.parse_args()
     device = Device(args.address)
     if args.command == "connect":
         device.password = os.environ.get("HAMINN_PASSWORD") or getpass.getpass("Haminn six-character password: ")
         initialized = device.initialize(); device.save_password()
         result = {"connected": True, "serverInfo": initialized["serverInfo"],
-                  "credentialFile": str(device.credential_file)}
+                  "credentialFile": str(device.credential_file), "plugin": plugin_freshness(device)}
         if args.show_guide:
             result["guidance"] = device.tool("haminn_get_guide")
     elif args.command == "doctor":
         result = host_environment()
+        result["plugin"] = {"helperSha256": helper_digest(), "helperPath": str(plugin_directory()),
+                            "note": "设备端摘要由 connect 或 status 对照报告；两边不一致就是本机这份副本过期。"}
+    elif args.command == "status":
+        # Report the on-disk half even when the phone is unreachable.
+        try:
+            device.initialize(); device.remember()
+        except (OSError, RuntimeError) as error:
+            print(json.dumps({"event": "device-unreachable", "error": str(error)}, ensure_ascii=False),
+                  file=sys.stderr, flush=True)
+        result = status_report(device, args.status_file, args.app_id)
     elif args.command == "install-plugin":
         result = install_plugin(device, args.directory, args.force, args.package_url, args.package_sha256, args.plugin_version)
-    elif args.command == "client-config":
-        script = str(Path(__file__).resolve())
-        stdio_args = [script, "--address", device.base, "stdio"]
-        codex_args = ["codex", "mcp", "add", PLUGIN_ID, "--", sys.executable] + stdio_args
-        result = {"platforms": ["Windows", "macOS", "Linux"],
-                  "mcpServers": {PLUGIN_ID: {"command": sys.executable, "args": stdio_args}},
-                  "commands": {"posix": shlex.join(codex_args), "windows": subprocess.list2cmdline(codex_args)},
-                  "remoteHTTP": {"url": device.base + "/mcp", "header": "Authorization: Bearer <current password>", "note": "Use your client's secret storage; run connect first for stdio. This command only prints templates, never edits client configuration."}}
-    elif args.command == "stdio":
-        stdio(device); return
     else:
         if args.command in ("prepare-dir", "develop-dir", "update-dir"):
             device.discover()
         device.initialize()
+        device.remember()
         if args.command == "guide":
             result = device.tool("haminn_get_guide")
         elif args.command == "tools":
@@ -1075,13 +1435,22 @@ def main():
         elif args.command == "sync-dir":
             result = dev_sync(device, args.app_id, args.directory)
         elif args.command == "prepare-dir":
-            result = prepare_dev(device, args.directory, args.app_id, workspace_cache={}, sync_policy=args.sync_policy)
+            result = prepare_dev(device, args.directory, args.app_id, workspace_cache={},
+                                 sync_policy=args.sync_policy, claim=not args.no_claim)
         elif args.command == "develop-dir":
             hash_cache, workspace_cache = {}, {}
-            prepared = prepare_dev(device, args.directory, args.app_id, hash_cache=hash_cache, workspace_cache=workspace_cache, sync_policy=args.sync_policy)
+            # Hold the device-wide watcher lock before touching the runtime, so a
+            # second watcher is refused instead of stealing the foreground from the
+            # first one.  The appId it names is filled in once the local manifest has
+            # been matched to an installed instance.
+            watch_status = WatchStatus(device, None, args.directory, args.status_file, args.take_over)
+            prepared = prepare_dev(device, args.directory, args.app_id, hash_cache=hash_cache,
+                                   workspace_cache=workspace_cache, sync_policy=args.sync_policy,
+                                   claim=not args.no_claim)
             print(json.dumps(prepared, ensure_ascii=False), flush=True)
             watch_development(device, prepared["appId"], args.directory, already_synced=True, quiet=args.quiet,
-                              hash_cache=hash_cache, workspace_cache=workspace_cache)
+                              hash_cache=hash_cache, workspace_cache=workspace_cache, status=watch_status,
+                              claim=not args.no_claim)
             return
         elif args.command == "update-dir":
             result = update_dir(device, args.directory, args.app_id, args.bump)
@@ -1104,7 +1473,8 @@ def main():
                     "buildId": result["buildId"], "expectedStableReleaseId": current["activeReleaseId"]
                 })
         elif args.command == "watch":
-            watch_development(device, args.app_id, args.directory, quiet=args.quiet)
+            watch_development(device, args.app_id, args.directory, quiet=args.quiet, claim=not args.no_claim,
+                              status=WatchStatus(device, args.app_id, args.directory, args.status_file, args.take_over))
             return
         else:
             raise ValueError("Unknown command")

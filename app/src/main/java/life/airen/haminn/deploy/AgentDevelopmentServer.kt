@@ -297,7 +297,7 @@ class AgentDevelopmentServer(
             .put("password", passwordForUi()).put("addresses", JSONArray(addresses))
             .put("monitorIntervalSeconds", NETWORK_MONITOR_MS / 1000)
         if (endpoint != null) {
-            if (networkAvailable) result.put("address", endpoint.address).put("mcpUrl", endpoint.address + "/mcp")
+            if (networkAvailable) result.put("address", endpoint.address)
             result.put("serverVersion", BuildConfig.VERSION_NAME).put("runId", endpoint.runId)
                 .put("usbAddress", "http://127.0.0.1:${endpoint.listeningPort}")
                 .put("usbCommand", "adb forward tcp:${endpoint.listeningPort} tcp:${endpoint.listeningPort}")
@@ -357,7 +357,7 @@ class AgentDevelopmentServer(
                 .put("replaces", JSONArray(listOf(LEGACY_PLUGIN_ID)))
                 .put("packageFormat", "codex-plugin-archive-v1")
                 .put("files", JSONArray(listOf(
-                    "manifest.json", ".codex-plugin/plugin.json", ".mcp.json",
+                    "manifest.json", ".codex-plugin/plugin.json",
                     "SKILL.md", "skills/$PLUGIN_ID/SKILL.md", "haminn-agent.py", "install.md"
                 )))
             val codexManifest = JSONObject()
@@ -368,7 +368,6 @@ class AgentDevelopmentServer(
                 .put("license", "UNLICENSED")
                 .put("keywords", JSONArray(listOf("haminn", "happ", "android", "mcp")))
                 .put("skills", "./skills/")
-                .put("mcpServers", "./.mcp.json")
                 .put("interface", JSONObject()
                     .put("displayName", "Haminn Device")
                     .put("shortDescription", "Develop and deploy runnable Haminn happs on your phone.")
@@ -377,19 +376,13 @@ class AgentDevelopmentServer(
                     .put("category", "Developer Tools")
                     .put("capabilities", JSONArray(listOf("Write", "Interactive")))
                     .put("defaultPrompt", JSONArray(listOf("Prepare the selected Haminn happ for local development."))))
-            val mcpConfig = JSONObject().put("mcpServers", JSONObject().put(PLUGIN_ID, JSONObject()
-                .put("type", "stdio")
-                .put("command", "python3")
-                .put("args", JSONArray(listOf("${'$'}{CODEX_PLUGIN_ROOT}/haminn-agent.py", "--address", baseAddress, "stdio")))
-                .put("description", "Haminn device MCP bridge; the helper stores the password in a private credential file.")))
             val files = linkedMapOf(
                 "manifest.json" to manifest.toString(2),
                 ".codex-plugin/plugin.json" to codexManifest.toString(2),
-                ".mcp.json" to mcpConfig.toString(2),
                 "SKILL.md" to guide(),
                 "skills/$PLUGIN_ID/SKILL.md" to guide(),
                 "haminn-agent.py" to asset("agent/haminn-agent.py"),
-                "install.md" to "This is a Codex plugin archive and a Haminn agent bundle. Install atomically at ~/plugins/$PLUGIN_ID, verify packageSha256, then register the stdio MCP described by Bootstrap. It supersedes the legacy $LEGACY_PLUGIN_ID installation of the same product. The password is requested only when the MCP helper first authenticates."
+                "install.md" to "This is a Haminn agent bundle. Install atomically at ~/plugins/$PLUGIN_ID, verify packageSha256, then run haminn-agent.py --address <address> connect once so the six-character password is stored privately. All device work then runs through that helper's command line; this bundle registers no MCP server. It supersedes the legacy $LEGACY_PLUGIN_ID installation of the same product."
             )
             files.forEach { (name, content) ->
                 val entry = ZipEntry(name).apply { time = 0L }
@@ -489,7 +482,7 @@ class AgentDevelopmentServer(
             return if (accept.contains("text/html") && !accept.contains("application/json")) {
                 text(200, "text/html", bootstrapHtml())
             } else json(200, bootstrap()).apply {
-                addHeader("Link", "<$address/.well-known/haminn-agent>; rel=\"service-desc\", <$address/mcp>; rel=\"mcp\", <$address/plugin/$PLUGIN_ID>; rel=\"plugin\"")
+                addHeader("Link", "<$address/.well-known/haminn-agent>; rel=\"service-desc\", <$address/plugin/$PLUGIN_ID>; rel=\"plugin\"")
             }
         }
 
@@ -498,8 +491,6 @@ class AgentDevelopmentServer(
             .put("serverVersion", BuildConfig.VERSION_NAME).put("runId", runId)
             .put("protocolVersions", JSONArray(PROTOCOLS))
             .put("packageFormat", "codex-plugin-archive-v1")
-            .put("codexIntegration", "mcp-stdio")
-            .put("nativeCodexPlugin", true)
             .put("plugin", JSONObject().put("id", PLUGIN_ID).put("version", BuildConfig.VERSION_NAME)
                 .put("codexVersion", "${BuildConfig.VERSION_NAME}+codex.${AgentWorkspace.sha(address.toByteArray()).take(12)}")
                 .put("displayName", "Haminn happ development"))
@@ -521,24 +512,11 @@ class AgentDevelopmentServer(
                         .put("windows", JSONArray(listOf("py", "-3", "<downloadedHelper>", "--address", address,
                             "install-plugin", "--package-url", "$address/plugin/$PLUGIN_ID",
                             "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME)))))
-                .put("mcpRegistration", JSONObject()
-                    .put("name", PLUGIN_ID)
-                    .put("transport", "stdio")
-                    .put("helper", "haminn-agent.py")
-                    .put("args", JSONArray(listOf("--address", address, "stdio")))
-                    .put("credentialMode", "helper-managed")
-                    .put("passwordInConfig", false)
-                    .put("registrationMode", "codex-plugin")
-                    .put("registerCommand", JSONArray(listOf("codex", "plugin", "add", "$PLUGIN_ID@personal")))
-                    .put("stdioFallbackCommand", JSONArray(listOf("codex", "mcp", "add", PLUGIN_ID, "--", "<python>", "<pluginDir>/haminn-agent.py", "--address", address, "stdio")))
-                    .put("replaceExisting", true)
-                    .put("authenticateCommand", JSONArray(listOf("<python>", "<pluginDir>/haminn-agent.py", "--address", address, "connect"))))
-                .put("afterInstall", "register_mcp_then_authenticate")
+                .put("authenticateCommand", JSONArray(listOf("<python>", "<pluginDir>/haminn-agent.py", "--address", address, "connect")))
+                .put("afterInstall", "authenticate")
                 .put("fallback", JSONObject().put("skillUrl", "$address/skills/$PLUGIN_ID/SKILL.md")
                     .put("helperUrl", "$address/haminn-agent.py")
                     .put("helperSha256", AgentWorkspace.sha(asset("agent/haminn-agent.py").toByteArray()))))
-            .put("connection", JSONObject().put("mcpUrl", "$address/mcp").put("transport", "streamable-http")
-                .put("authorization", "Bearer <current-six-character-password>").put("passwordRequired", true))
             .put("recovery", JSONObject()
                 .put("addressUnavailable", JSONObject().put("nextAction", "ask_user_for_current_address")
                     .put("message", "请在手机打开 Haminn 应用，在开发配置中查看并提供当前开发服务地址。"))
@@ -548,8 +526,8 @@ class AgentDevelopmentServer(
                 .put("firstRequest", JSONObject().put("method", "GET").put("path", "/")
                     .put("headers", JSONObject().put("Accept", "application/json")))
                 .put("doNot", JSONArray(listOf("read workspace instructions", "search repositories", "open a browser", "scan the LAN", "guess passwords")))
-                .put("successStates", JSONArray(listOf("installed", "mcpRegistered", "authenticated"))))
-            .put("bootstrapInstruction", "安装或更新 $PLUGIN_ID 插件（它取代旧的 $LEGACY_PLUGIN_ID 安装）；安装完成后连接 mcpUrl，并按插件说明准备本地 happ 开发。")
+                .put("successStates", JSONArray(listOf("installed", "authenticated"))))
+            .put("bootstrapInstruction", "安装或更新 $PLUGIN_ID（它取代旧的 $LEGACY_PLUGIN_ID 安装），首次用 install.authenticateCommand 私下录入密码，之后按插件说明用 haminn-agent.py 的命令行准备本地 happ 开发。本插件不注册任何 MCP 服务，也不需要连接器。")
             .put("discoveryInstruction", "Read GET /.well-known/haminn-agent for the same cached Bootstrap contract.")
             .put("guidanceVersion", guidanceVersion).put("schemaDigest", AgentWorkspace.sha(catalogText.toByteArray()))
             .put("resourceDigests", resourceDigests).put("intentIndex", intentIndex()).put("toolIndex", toolIndex())
@@ -559,9 +537,8 @@ class AgentDevelopmentServer(
         private fun bootstrapHtml() = """
             <!doctype html><meta charset=\"utf-8\"><title>Haminn 智能体开发插件</title>
             <h1>Haminn 智能体开发插件</h1>
-            <p>把这个地址提供给智能体，它可以从这里安装或更新 Haminn 开发插件，然后连接当前设备的 MCP 开发能力。</p>
+            <p>把这个地址提供给智能体：它从这里安装或更新 Haminn 开发插件，然后用插件自带的命令行工具开发本机上的 happ。</p>
             <p>插件：$PLUGIN_ID ${BuildConfig.VERSION_NAME}</p>
-            <p>安装后连接：<code>$address/mcp</code></p>
             <p>开发密码：请在手机打开 Haminn 应用，在“开发配置”中查看。</p>
             <p>手机网络变化或密码失效时，也请在“开发配置”中获取当前地址和密码。</p>
         """.trimIndent()
@@ -569,22 +546,20 @@ class AgentDevelopmentServer(
         private fun connectionGuide() = """
             Haminn ${BuildConfig.VERSION_NAME} agent development connection
             Address: $address
-            Read GET / with Accept: application/json to obtain the haminn-agent-bootstrap contract. Install or update $PLUGIN_ID from install.packageUrl, verify its packageSha256, then connect to connection.mcpUrl. /.well-known/haminn-agent returns the same contract for cache refresh. Fetch the short skill only when guidanceVersion changes. Read haminn://tool-index and one haminn://tool/TOOL_NAME schema on demand; do not load full schemas unnecessarily.
+            Read GET / with Accept: application/json to obtain the haminn-agent-bootstrap contract. Install or update $PLUGIN_ID from install.packageUrl, verify its packageSha256, then run its helper once with the authenticateCommand. /.well-known/haminn-agent returns the same contract for cache refresh. Fetch the short skill only when guidanceVersion changes. Read haminn://tool-index and one haminn://tool/TOOL_NAME schema on demand; do not load full schemas unnecessarily.
             This is a trusted-LAN HTTP service, not an encrypted Internet endpoint.
             Ask the user for the current six-character password displayed in Haminn. No pairing or per-computer identity.
-            POST MCP JSON-RPC to /mcp with Authorization: Bearer <password> and Accept: application/json, text/event-stream.
             The one persistent password authorizes all exposed developer tools and all apps on any computer.
             Changing the password invalidates old credentials on the next request, including existing HTTP connections.
             Optional standalone Python helper: GET /haminn-agent.py. Inspect it before running. It needs Python 3.10+ standard library only.
-            The helper and direct MCP endpoint work on Windows, macOS and Linux; no files from the developer's computer are assumed.
+            The helper works on Windows, macOS and Linux; no files from the developer's computer are assumed.
             python3 haminn-agent.py --address $address connect
             Windows launcher alternative: py -3 haminn-agent.py --address $address connect
             Continuous local development: python3 haminn-agent.py --address $address develop-dir /path/to/happ --quiet
             One-shot local preparation: python3 haminn-agent.py --address $address prepare-dir /path/to/happ
             Stable device upgrade: python3 haminn-agent.py --address $address update-dir /path/to/happ --bump patch
             python3 haminn-agent.py --address $address install-plugin
-            python3 haminn-agent.py --address $address client-config
-            A successful MCP connection already proves the global development service is enabled; never check that switch again. For a local happ directory, prefer the helper's develop-dir command: it opens a global session, reads the target dev version, asks for an explicit whole-tree policy, then sends later changes with atomic hot updates and state-preserving refresh. Use update-dir only for an explicit stable device upgrade; it preserves the original instance and data through the standard release transaction. The lower-level prepare-dir, sync-dir and watch commands remain available. Before a direct write cycle call haminn_get_happ_dev_status for the selected target. HaminnUI is protected and never exposed as a development target.
+            The helper is the only development entry point; this service registers no MCP server and needs no connector. A successful helper call already proves the global development service is enabled; never check that switch again. For a local happ directory, prefer the helper's develop-dir command: it opens a global session, reads the target dev version, asks for an explicit whole-tree policy, then sends later changes with atomic hot updates and state-preserving refresh. Use update-dir only for an explicit stable device upgrade; it preserves the original instance and data through the standard release transaction. The lower-level prepare-dir, sync-dir and watch commands remain available. Before a direct write cycle call haminn_get_happ_dev_status for the selected target. HaminnUI is protected and never exposed as a development target.
             No frontend build or framework support is needed. Author native HTML + JS + CSS; other tools' finished static output is accepted neutrally.
             Optimize for fast iteration: make focused edits, run only the smallest directly relevant technical check, then sync and refresh immediately. Do not default to full-suite tests, release packaging, screenshots or visual inspection unless the change or user requires them.
             Android 10 / API 29 devices with older vendor WebViews are the recommended compatibility baseline unless the task chooses a newer target. Android has no fixed "WebView 10": prefer older-compatible JavaScript syntax or transpiled output, feature-detect newer browser APIs, and provide fallbacks. For Android system abilities, use only capabilities HaminnApp supports through its public Bridge, query availability first, and treat anything absent from the Bridge as unavailable rather than calling undocumented Native or vendor interfaces. This is agent guidance only; HaminnApp does not scan, certify or reject happ code for these choices. Keep any compatibility check focused rather than expanding each edit into a full test.

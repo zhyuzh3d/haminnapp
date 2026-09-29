@@ -1,4 +1,3 @@
-import contextlib
 import importlib.util
 import io
 import json
@@ -49,8 +48,7 @@ class AgentHelperTest(unittest.TestCase):
         package_buffer = io.BytesIO()
         with zipfile.ZipFile(package_buffer, "w") as archive:
             archive.writestr("manifest.json", json.dumps({"kind": "haminn-agent-plugin", "id": "haminn-device", "version": "9.0.0", "codexVersion": "9.0.0+codex.test", "packageFormat": "codex-plugin-archive-v1"}))
-            archive.writestr(".codex-plugin/plugin.json", json.dumps({"name": "haminn-device", "version": "9.0.0+codex.test", "mcpServers": "./.mcp.json"}))
-            archive.writestr(".mcp.json", json.dumps({"mcpServers": {"haminn-device": {"type": "stdio"}}}))
+            archive.writestr(".codex-plugin/plugin.json", json.dumps({"name": "haminn-device", "version": "9.0.0+codex.test"}))
             archive.writestr("SKILL.md", "bootstrap skill")
             archive.writestr("haminn-agent.py", "print('helper')")
         package = package_buffer.getvalue()
@@ -109,33 +107,40 @@ class AgentHelperTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.request_target("https://127.0.0.1:8766/plugin/haminn-device")
 
-    def test_default_codex_target_updates_only_haminn_marketplace_entry(self):
-        with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp)
-            with patch("pathlib.Path.home", return_value=home):
-                marketplace = helper.ensure_codex_marketplace(home / "plugins" / "haminn-device")
-                self.assertEqual(home / ".agents/plugins/marketplace.json", marketplace)
-                payload = json.loads(marketplace.read_text())
-                self.assertEqual("personal", payload["name"])
-                self.assertEqual("haminn-device", payload["plugins"][0]["name"])
-                self.assertEqual("./plugins/haminn-device", payload["plugins"][0]["source"]["path"])
-                helper.ensure_codex_marketplace(home / "plugins" / "haminn-device")
-                self.assertEqual(1, len(json.loads(marketplace.read_text())["plugins"]))
-
-    def test_plugin_identity_is_renamed_and_legacy_marketplace_entry_is_migrated(self):
+    def test_plugin_identity_survives_the_connector_removal(self):
         self.assertEqual("haminn-dev-plugin", helper.PLUGIN_ID)
         self.assertIn("haminn-device", helper.PLUGIN_IDS)
+        # The install path no longer offers a connector: no stdio adapter, no
+        # marketplace entry, no MCP configuration anywhere in the helper.
+        for removed in ("stdio", "ensure_codex_marketplace"):
+            self.assertFalse(hasattr(helper, removed), removed)
+        source = Path(helper.__file__).read_text(encoding="utf-8")
+        for absent in ("mcpServers", ".mcp.json", "client-config", "marketplace.json"):
+            self.assertNotIn(absent, source)
+
+    def test_password_is_reused_across_addresses_on_one_lan(self):
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp)
-            with patch("pathlib.Path.home", return_value=home):
-                legacy = helper.ensure_codex_marketplace(home / "plugins" / "haminn-device")
-                self.assertEqual("haminn-device", json.loads(legacy.read_text())["plugins"][0]["name"])
-                marketplace = helper.ensure_codex_marketplace(home / "plugins" / helper.PLUGIN_ID)
-                plugins = json.loads(marketplace.read_text())["plugins"]
-            self.assertEqual(["haminn-dev-plugin"], [item["name"] for item in plugins])
-            self.assertEqual("./plugins/haminn-dev-plugin", plugins[0]["source"]["path"])
-            with patch("pathlib.Path.home", return_value=home):
-                self.assertIsNone(helper.ensure_codex_marketplace(home / "plugins" / "unrelated-plugin"))
+            helper.Device("http://192.168.1.10:8766", "123456", temp).save_password()
+            self.assertEqual("123456", helper.Device("http://192.168.1.77:8766", config_root=temp).password)
+            self.assertIsNone(helper.Device("http://192.168.2.77:8766", config_root=temp).password)
+
+    def test_development_scope_names_what_can_never_publish(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "index.html").write_text("native")
+            (root / "haminn.json").write_text("{}")
+            (root / "notes.md").write_text("scratch")
+            (root / "release").mkdir()
+            with zipfile.ZipFile(root / "release" / "happ.zip", "w") as archive:
+                archive.writestr("index.html", "old")
+                archive.writestr("haminn.json", "{}")
+            (root / "haminn-install.json").write_text(json.dumps({"package": "release/happ.zip"}))
+            scope = helper.development_scope(root)
+            self.assertEqual(["haminn.json", "index.html"], scope["roots"])
+            self.assertIn("notes.md", scope["excluded"])
+            self.assertIn("haminn-install.json", scope["excluded"])
+            self.assertIn("release/happ.zip", scope["excluded"])
+            self.assertEqual(scope["excludedCount"], len(scope["excluded"]))
 
     def test_credentials_are_private_and_rotation_replaces_one_value(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -176,7 +181,7 @@ class AgentHelperTest(unittest.TestCase):
             self.assertEqual(["app/app.js", "haminn.json", "index.html"],
                              [name for name, _ in helper.development_files(root)])
 
-    def test_http_auth_stdio_and_redirect_refusal(self):
+    def test_http_auth_and_redirect_refusal(self):
         with tempfile.TemporaryDirectory() as temp:
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
@@ -190,12 +195,6 @@ class AgentHelperTest(unittest.TestCase):
                 self.assertTrue(headers["Authorization"] == "Bearer " + client.password)
                 self.assertNotIn("Mcp-Session-Id", headers)
                 with self.assertRaises(RuntimeError): client.request("/redirect")
-                output = io.StringIO()
-                with patch("sys.stdin", io.StringIO('{"jsonrpc":"2.0","id":4,"method":"tools/list"}\n')), contextlib.redirect_stdout(output):
-                    helper.stdio(client)
-                reply = json.loads(output.getvalue())
-                self.assertEqual(4, reply["id"])
-                self.assertFalse(client.password in output.getvalue())
             finally:
                 client.close()
                 server.shutdown(); server.server_close(); thread.join()
@@ -328,6 +327,7 @@ class AgentHelperTest(unittest.TestCase):
                     self.get_count += 1
                     return {"appId": "app-id", "activeReleaseId": "new" if self.get_count > 1 else "old",
                             "launchChannel": "stable" if self.get_count > 1 else "dev", "dataGenerationId": "data", "trustRevision": 7}
+                if name == "haminn_get_page_state": return {"appId": "app-id"}
                 if name == "haminn_list_releases": return {"releases": [{"releaseId": "old", "versionCode": 1}]}
                 if name == "haminn_build_dev_package": return {"buildId": "build"}
                 if name == "haminn_install_dev_package": return {"releaseId": "new"}
@@ -386,6 +386,7 @@ class AgentHelperTest(unittest.TestCase):
                         {"path": "haminn.json", "sha256": hashlib.sha256(b'{"happId":"io.example.happ"}').hexdigest()}
                     ]}
                 if name == "haminn_wait_dev_render": return {"state": "rendered"}
+                if name == "haminn_get_page_state": return {"appId": "app-id"}
                 raise AssertionError(name)
         with tempfile.TemporaryDirectory() as temp:
             Path(temp, "haminn.json").write_text('{"happId":"io.example.happ"}')
@@ -410,6 +411,9 @@ class AgentHelperTest(unittest.TestCase):
                     return {"appId": "app-id", "revision": 4, "treeHash": "old", "devVersion": {"code": 1, "name": "1.0.0"}}
                 if name == "haminn_hot_update_happ":
                     return {"appId": "app-id", "revision": 5, "treeHash": "new", "changedPaths": ["index.html"], "refreshState": "scheduled"}
+                if name == "haminn_runtime_status":
+                    return {"appId": "app-id", "launchChannel": "dev"}
+                if name == "haminn_get_page_state": return {"appId": "app-id"}
                 raise AssertionError(name)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

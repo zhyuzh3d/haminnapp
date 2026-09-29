@@ -2,6 +2,11 @@ package life.airen.haminn.install
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
 import android.util.Base64
 import life.airen.haminn.model.ErrorCodes
 import life.airen.haminn.model.HaminnException
@@ -48,6 +53,47 @@ object IconProcessor {
     fun centeredPngDataUrl(open: () -> InputStream?): String =
         DATA_URL_PREFIX + Base64.encodeToString(centeredPngBytes(open), Base64.NO_WRAP)
 
+    /**
+     * The one corner radius Haminn clips an icon with, for a given side length.
+     *
+     * Every surface the host draws an icon onto asks this, so "Haminn's icon shape"
+     * is a single rule instead of one number per call site. Nothing inspects the
+     * artwork: whatever the image contains, it is clipped to this shape.
+     */
+    fun cornerRadius(side: Int): Float = side * CORNER_RATIO
+
+    /**
+     * Clips an icon to the rounded square Haminn hands to Android's own surfaces.
+     *
+     * Stored icon bytes stay exactly as they arrived, because the surfaces that clip
+     * their own tiles - HaminnUI's app list, the website, the share card - already
+     * round them and would otherwise show a sliver of their own background in the
+     * corner. The surfaces that clip nothing are Android's: the "add to home screen"
+     * dialog and the desktop tile it produces, and the recents card. They take a
+     * bitmap and draw it as it is, so the shape has to be in the pixels.
+     *
+     * What that shape is, is our choice rather than the device's - see CORNER_RATIO.
+     * A launcher may mask the result again; a radius kept below every mask means the
+     * system's shape simply wins, and the only thing visible is the corner we
+     * deliberately drew where nothing masks at all.
+     *
+     * It is idempotent: an already rounded artwork clips to itself.
+     */
+    fun rounded(source: Bitmap): Bitmap {
+        val side = minOf(source.width, source.height)
+        val square = if (source.width == side && source.height == side) source else {
+            Bitmap.createBitmap(source, (source.width - side) / 2, (source.height - side) / 2, side, side)
+        }
+        val output = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            shader = BitmapShader(square, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val radius = cornerRadius(side)
+        Canvas(output).drawRoundRect(RectF(0f, 0f, side.toFloat(), side.toFloat()), radius, radius, paint)
+        if (square !== source) square.recycle()
+        return output
+    }
+
     fun decodePngDataUrl(value: String): ByteArray {
         if (!value.startsWith(DATA_URL_PREFIX)) throw HaminnException(ErrorCodes.INVALID_ARGUMENT, "图标格式无效")
         val bytes = runCatching { Base64.decode(value.removePrefix(DATA_URL_PREFIX), Base64.NO_WRAP) }
@@ -62,6 +108,23 @@ object IconProcessor {
 
     const val DATA_URL_PREFIX = "data:image/png;base64,"
     const val OUTPUT_SIZE = 192
+
+    /**
+     * Corner radius of the icon shape Haminn draws, as a fraction of the side.
+     *
+     * This is our own fixed choice, deliberately not a property of any device. It is
+     * kept below the radius a launcher is likely to mask with - the CMA-AN00 measures
+     * 0.168, which is where the number used to be taken from - because the tile the
+     * user ends up seeing is our shape intersected with the launcher's mask. While
+     * ours is the looser of the two the mask decides the silhouette and the shortcut
+     * matches the icons beside it; a radius above the mask would cut the corners
+     * first and leave a second arc inside it.
+     *
+     * Haminn does not reproduce the icon language of every device and does not try
+     * to. Below any mask the system's own shape shows, and on a launcher that applies
+     * no mask the tile still reads as a rounded square rather than a raw rectangle.
+     */
+    private const val CORNER_RATIO = 0.12f
     private const val MAX_DECODE_DIMENSION = 1024
     private const val MAX_OUTPUT_BYTES = 512 * 1024
 }

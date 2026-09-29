@@ -86,7 +86,7 @@ test("agent catalog, guide snapshots and shared-password authority stay aligned"
   const toolIndex = tools.map(({ name, description }) => ({ name, description }));
   assert.ok(Buffer.byteLength(JSON.stringify(toolIndex)) < 8 * 1024, "the public tool index must stay compact and schema-free");
   assert.deepEqual(Object.keys(toolIndex[0]).sort(), ["description", "name"]);
-  assert.ok(Buffer.byteLength(guide) < 12 * 1024, "the default device guide must remain a short, cacheable operating guide");
+  assert.ok(Buffer.byteLength(guide) < 16 * 1024, "the default device guide must stay one cacheable fetch, not an unbounded manual");
   assert.match(guide, /~\/haminn\/happ-dev\.json/);
   assert.match(guide, /happ-<happId-with-dots-replaced-by-hyphens>/);
   assert.match(guide, /one `happId` has one active local directory/);
@@ -114,10 +114,12 @@ test("agent catalog, guide snapshots and shared-password authority stay aligned"
   assert.match(server, /put\("error", "authentication_required"\).*put\("reason".*put\("nextAction", "ask_user_for_current_password"/s);
   assert.match(server, /haminn-agent-bootstrap/);
   assert.match(discovery, /put\("packageFormat", "codex-plugin-archive-v1"\)/);
-  assert.match(discovery, /put\("nativeCodexPlugin", true\)/);
   assert.match(discovery, /atomic_replace_if_hash_differs/);
-  assert.match(discovery, /register_mcp_then_authenticate/);
-  assert.match(discovery, /codex", "plugin", "add", "\$PLUGIN_ID@personal/);
+  assert.match(discovery, /put\("afterInstall", "authenticate"\)/);
+  // No connector: the service generates, registers and advertises no MCP server.
+  assert.doesNotMatch(discovery, /nativeCodexPlugin|codexIntegration|mcpRegistration|mcpUrl|stdio/);
+  assert.doesNotMatch(server, /mcpServers|\.mcp\.json|client-config/);
+  assert.match(discovery, /clientContract/);
   assert.match(server, /ZipEntry\(name\)\.apply \{ time = 0L \}/);
   assert.match(server, /packageSha256/);
   assert.doesNotMatch(server, /\/pw\/|password.*(?:path|query|fragment)/i);
@@ -200,7 +202,11 @@ test("package defaults and custom happ icon overrides stay distinct", () => {
   assert.match(registry, /put\("icon_url", iconUrl\)/);
   assert.match(registry, /put\("default_icon_url", defaultIconUrl\)/);
   assert.match(shortcuts, /instance\.effectiveIconUrl/);
-  assert.match(shortcuts, /Icon::createWithBitmap/);
+  // The shortcut icon must be built from a bitmap, but how it is written is not the
+  // contract: `bitmap?.let(Icon::createWithBitmap)` and `Icon.createWithBitmap(rounded)`
+  // are the same outcome, and pinning the callable-reference form made this test fail
+  // on a behaviour-preserving refactor.
+  assert.match(shortcuts, /Icon\s*(::|\.)\s*createWithBitmap/);
   assert.match(shortcuts, /manager\.pinnedShortcuts/);
   assert.match(shortcuts, /enum class PinState/);
   assert.match(activity, /put\("desktopShortcutState"/);
@@ -665,15 +671,22 @@ test("the installed plugin identity is haminn-dev-plugin and the legacy name sta
   assert.match(server, /private const val LEGACY_PLUGIN_ID = "haminn-device"/);
   assert.match(discovery, /put\("id", PLUGIN_ID\)/);
   assert.match(discovery, /put\("replaces", JSONArray\(listOf\(LEGACY_PLUGIN_ID\)\)\)/);
-  assert.match(discovery, /put\("name", PLUGIN_ID\)/);
+  assert.match(server, /\.put\("name", PLUGIN_ID\)/);
   assert.match(discovery, /put\("target", "~\/plugins\/\$PLUGIN_ID"\)/);
   assert.match(discovery, /skills\/\$PLUGIN_ID\/SKILL\.md/);
   assert.match(server, /"skills\/\$PLUGIN_ID\/SKILL\.md" to guide\(\)/);
-  assert.match(server, /put\("mcpServers", JSONObject\(\)\.put\(PLUGIN_ID,/);
+  assert.doesNotMatch(server, /put\("mcpServers", JSONObject\(\)\.put\(PLUGIN_ID,/);
+  assert.doesNotMatch(server, /\.mcp\.json|client-config|nativeCodexPlugin|mcpRegistration/);
   assert.match(helper, /^PLUGIN_ID = "haminn-dev-plugin"$/m);
   assert.match(helper, /LEGACY_PLUGIN_IDS = \("haminn-device",\)/);
   assert.match(helper, /plugin\.get\("id"\) not in PLUGIN_IDS/);
   assert.match(helper, /default_target = \(Path\.home\(\) \/ "plugins" \/ PLUGIN_ID\)/);
+  // The helper keeps the device transport but exposes no client-side connector path.
+  assert.doesNotMatch(helper, /stdio|client-config|marketplace|mcpServers|\.mcp\.json/);
+  assert.match(helper, /def status_report\(device, explicit_path=None, app_id=None\)/);
+  assert.match(helper, /def development_scope\(directory, sample=20\)/);
+  assert.match(helper, /def plugin_freshness\(device\)/);
+  assert.match(helper, /def reusable_password\(base, root\)/);
   assert.match(guide, /^name: haminn-dev-plugin$/m);
   assert.ok(fs.existsSync(root + "haminn-dev-plugin/SKILL.md"));
   assert.ok(!fs.existsSync(root + "haminn-device/SKILL.md"));

@@ -190,18 +190,20 @@ class AgentDevelopmentTest {
         val bootstrap = JSONObject(bootstrapResponse.second)
         assertEquals("haminn-agent-bootstrap", bootstrap.getString("kind"))
         assertEquals("codex-plugin-archive-v1", bootstrap.getString("packageFormat"))
-        assertTrue(bootstrap.getBoolean("nativeCodexPlugin"))
+        assertFalse(bootstrap.has("nativeCodexPlugin"))
+        assertFalse(bootstrap.has("codexIntegration"))
+        assertFalse(bootstrap.has("connection"))
         assertTrue(bootstrap.getJSONObject("plugin").getString("codexVersion").startsWith(bootstrap.getJSONObject("plugin").getString("version") + "+codex."))
         assertEquals("install_or_update", bootstrap.getJSONObject("install").getString("action"))
         assertEquals("codex-plugin-archive-v1", bootstrap.getJSONObject("install").getString("packageFormat"))
         assertEquals("~/plugins/haminn-dev-plugin", bootstrap.getJSONObject("install").getString("target"))
         assertEquals("atomic_replace_if_hash_differs", bootstrap.getJSONObject("install").getString("strategy"))
         assertEquals("no_op", bootstrap.getJSONObject("install").getString("existingSameVersion"))
-        assertEquals("register_mcp_then_authenticate", bootstrap.getJSONObject("install").getString("afterInstall"))
-        assertEquals("helper-managed", bootstrap.getJSONObject("install").getJSONObject("mcpRegistration").getString("credentialMode"))
-        assertFalse(bootstrap.getJSONObject("install").getJSONObject("mcpRegistration").getBoolean("passwordInConfig"))
+        assertEquals("authenticate", bootstrap.getJSONObject("install").getString("afterInstall"))
+        // The connector is gone: nothing registers or advertises an MCP server.
+        assertFalse(bootstrap.getJSONObject("install").has("mcpRegistration"))
         assertEquals("/", bootstrap.getJSONObject("clientContract").getJSONObject("firstRequest").getString("path"))
-        assertEquals(3, bootstrap.getJSONObject("clientContract").getJSONArray("successStates").length())
+        assertEquals(2, bootstrap.getJSONObject("clientContract").getJSONArray("successStates").length())
         assertEquals("ask_user_for_current_address", bootstrap.getJSONObject("recovery").getJSONObject("addressUnavailable").getString("nextAction"))
         assertEquals("ask_user_for_current_password", bootstrap.getJSONObject("recovery").getJSONObject("passwordInvalid").getString("nextAction"))
         assertFalse(bootstrap.toString().contains(password))
@@ -224,9 +226,10 @@ class AgentDevelopmentTest {
             }
         }
         assertTrue(entries.contains(".codex-plugin/plugin.json"))
-        assertTrue(entries.contains(".mcp.json"))
+        assertFalse(entries.contains(".mcp.json"))
         assertTrue(entries.contains("skills/haminn-dev-plugin/SKILL.md"))
         assertEquals(bootstrap.getJSONObject("plugin").getString("codexVersion"), codexManifest!!.getString("version"))
+        assertFalse(codexManifest!!.has("mcpServers"))
     }
 
     @Test fun screenshotReturnsMcpImageAndRecentOperationsStayBounded() {

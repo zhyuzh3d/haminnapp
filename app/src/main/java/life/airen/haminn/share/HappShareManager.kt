@@ -18,6 +18,7 @@ import fi.iki.elonen.NanoHTTPD
 import life.airen.haminn.data.HostImageStore
 import life.airen.haminn.deploy.DevWorkspaceManager
 import life.airen.haminn.install.InstallCoordinator
+import life.airen.haminn.install.IconProcessor
 import life.airen.haminn.install.PackageManifest
 import life.airen.haminn.install.PackageManifestReader
 import life.airen.haminn.model.ErrorCodes
@@ -378,7 +379,8 @@ class HappShareManager(
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val bounds = RectF(0f, 0f, size.toFloat(), size.toFloat())
-        val clip = Path().apply { addRoundRect(bounds, 38f, 38f, Path.Direction.CW) }
+        val radius = IconProcessor.cornerRadius(size)
+        val clip = Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) }
         canvas.save(); canvas.clipPath(clip)
         if (source != null) {
             val scale = maxOf(size.toFloat() / source.width, size.toFloat() / source.height)

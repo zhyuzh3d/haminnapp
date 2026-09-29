@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import life.airen.haminn.MainActivity
 import life.airen.haminn.data.HostImageStore
+import life.airen.haminn.install.IconProcessor
 import life.airen.haminn.R
 import life.airen.haminn.model.WebAppInstance
 
@@ -142,9 +143,15 @@ class ShortcutHost(private val context: Context) {
     }
 
     private fun iconFor(instance: WebAppInstance): Icon {
-        val bitmap = images.open(instance.effectiveIconUrl)?.let { image ->
+        val source = images.open(instance.effectiveIconUrl)?.let { image ->
             runCatching { BitmapFactory.decodeFile(image.file.absolutePath) }.getOrNull()
-        }
-        return bitmap?.let(Icon::createWithBitmap) ?: Icon.createWithResource(context, R.mipmap.ic_launcher)
+        } ?: return Icon.createWithResource(context, R.mipmap.ic_launcher)
+        // The pin dialog and the desktop tile both take this bitmap and clip nothing
+        // themselves, so the corner has to be in the pixels. The launcher may mask the
+        // tile afterwards; this code does not try to predict or match that mask, and
+        // CORNER_RATIO stays below any plausible one so the system's shape wins.
+        val rounded = IconProcessor.rounded(source)
+        source.recycle()
+        return Icon.createWithBitmap(rounded)
     }
 }

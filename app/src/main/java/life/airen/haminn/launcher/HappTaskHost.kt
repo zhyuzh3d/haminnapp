@@ -14,6 +14,7 @@ import android.net.Uri
 import life.airen.haminn.MainActivity
 import life.airen.haminn.R
 import life.airen.haminn.data.HostImageStore
+import life.airen.haminn.install.IconProcessor
 import life.airen.haminn.model.WebAppInstance
 import java.io.File
 import java.util.Locale
@@ -37,7 +38,7 @@ object HappTaskHost {
 
     @Suppress("DEPRECATION")
     fun applyDescription(activity: Activity, instance: WebAppInstance?) {
-        val icon = if (instance == null) {
+        val source = if (instance == null) {
             BitmapFactory.decodeResource(activity.resources, R.drawable.haminn_icon)
         } else {
             instance.effectiveIconUrl
@@ -45,6 +46,11 @@ object HappTaskHost {
                 ?.let(::decodeTaskIcon)
                 ?: defaultTaskIcon(instance)
         }
+        // The recents card draws this bitmap exactly as it is handed over - the
+        // system applies no icon mask of its own there - so the rounded shape has to
+        // be in the pixels, like it is for the shortcut icon.
+        val icon = IconProcessor.rounded(source)
+        source.recycle()
         activity.setTaskDescription(
             ActivityManager.TaskDescription(instance?.name ?: activity.getString(R.string.app_name), icon, 0)
         )

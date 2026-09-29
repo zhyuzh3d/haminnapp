@@ -83,7 +83,7 @@ save.onclick = async () => {
 }
 ```
 
-`happId` 是发布链的稳定标识，不代表域名所有权；`version.code` 必须递增。`author/entry/routing/icon/liveUrl/updateUrl/display` 可省略。`author` 只用于展示作品署名，不代表发布者签名；开发副本默认继承当前文件中的作者，除非用户或智能体明确修改。`icon` 指向包内的 PNG、JPEG、WebP 或 GIF 图片；安装时 Haminn 会居中裁切并保存为 192×192 PNG，应用卡片和新增的桌面入口会直接使用它。`display.orientation` 可设为 `unspecified`、`portrait` 或 `landscape`；`display.keyboard` 可设为 `resize` 或 `overlay`。显示策略只在该 happ 前台时生效，`overlay` 会让输入法覆盖页面底部而不压缩 WebView。没有 `liveUrl` 的包是纯本地 happ：页面不能访问网络，但仍可使用获准的 Native Bridge。没有清单的 `index.html` 目录继续兼容，不过不具备自动识别发布链和恢复历史实例的保证。
+`happId` 是发布链的稳定标识，不代表域名所有权；`version.code` 必须递增。`author/entry/routing/icon/liveUrl/updateUrl/display` 可省略。`author` 只用于展示作品署名，不代表发布者签名；开发副本默认继承当前文件中的作者，除非用户或智能体明确修改。`icon` 指向包内的 PNG、JPEG、WebP 或 GIF 图片，**必须是直角满幅的方形图**。圆角由 Haminn 统一裁：图标要画到画布边缘、四角保持不透明。happ 自己画圆角或留透明边角，这个图标在桌面弹窗、桌面磁贴和最近任务里就会与别的 happ 长得不一样，而 Haminn **不检查图片、也不识别图片的形状**——不符合这条要求的图不会被纠正，只会自己显得不一致。安装时 Haminn 居中裁成正方形并保存为 192×192 PNG，应用卡片和新增的桌面入口直接使用它，圆角在交给系统的最后一刻才加。`display.orientation` 可设为 `unspecified`、`portrait` 或 `landscape`；`display.keyboard` 可设为 `resize` 或 `overlay`。显示策略只在该 happ 前台时生效，`overlay` 会让输入法覆盖页面底部而不压缩 WebView。没有 `liveUrl` 的包是纯本地 happ：页面不能访问网络，但仍可使用获准的 Native Bridge。没有清单的 `index.html` 目录继续兼容，不过不具备自动识别发布链和恢复历史实例的保证。
 
 Haminn 把每次安装展开为只读 release，更新先生成新 release 再原子切换，并至少保留前一版供回退。包代码不能写入自身目录；动态文件使用 `haminn.files`，结构化数据使用 `haminn.data`。可选的 `haminn.sig` 只证明同一发布公钥的版本连续性，不自动取得任何权限。
 
@@ -154,7 +154,7 @@ document.body.append(haminn.icons.create('heart', { style: 'regular', label: '�
 
 Haminn 提供全应用“智能体开发模式”：在 HaminnUI 的开发 Tab 开启，向可信智能体提供手机显示的局域网 HTTP 基址和六位数字密码；没有 Wi-Fi 时可仅启动 USB 服务并执行 `adb forward tcp:8766 tcp:8766`。局域网和 USB 使用同一套接口、同一个密码和同一份开发数据。所有电脑共用密码，不配对、不绑定电脑或客户端；修改密码后旧密码立即失效。密码只用于 Haminn 已开放的开发管理接口，不替代系统和逐应用能力授权。局域网 HTTP 未加密，只适用于可信网络，不应公网暴露。
 
-访问无需密码的根地址获取 Bootstrap；智能体先以 `Accept: application/json` 请求一次 `/`，按 `install.packageSha256` 安装或更新原生 `haminn-dev-plugin` Codex 插件，再按 `install.mcpRegistration` 注册 MCP。`/.well-known/haminn-agent` 是同一清单的缓存别名，`/mcp` 是标准 Streamable HTTP 接口，`/skills/haminn-dev-plugin/SKILL.md` 是随 APK 更新的动态指南。未带认证访问受保护接口时，服务以结构化 401 返回发现地址、说明地址和 `Authorization: Bearer <password>` 模板，智能体据此向用户索取当前密码；密码不得放入 URL 路径、查询参数、fragment、页面、Skill、日志或仓库。不能安装原生插件的客户端使用声明的 Skill/helper fallback 或直接连接 MCP；服务同时提供无需第三方 Python 库的 HTTP/stdio 助手。
+访问无需密码的根地址获取 Bootstrap；智能体先以 `Accept: application/json` 请求一次 `/`，按 `install.packageSha256` 安装或更新 `haminn-dev-plugin` 包，再用 `install.authenticateCommand` 私下录入一次密码。`/.well-known/haminn-agent` 是同一清单的缓存别名，`/skills/haminn-dev-plugin/SKILL.md` 是随 APK 更新的动态指南，`/mcp` 是设备自身的 JSON-RPC 传输层（助手内部使用，不需要注册任何连接器）。未带认证访问受保护接口时，服务以结构化 401 返回发现地址、说明地址和 `Authorization: Bearer <password>` 模板，智能体据此向用户索取当前密码；密码不得放入 URL 路径、查询参数、fragment、页面、Skill、日志或仓库。
 
 HaminnUI 仍不是可写开发目标，但它是页面调度的受保护例外。只要全局智能体开发服务已开启、调用方通过密码授权且 HaminnUI 正在前台，智能体就能调用 `haminn_get_page_state` 获取其白名单快照，并调用 `haminn_reload_shell` 刷新。传入 `runtimeMode: "online"` 可选择官方实时页面，普通进程重启保留该选择，APK 替换则按恢复机制回到内置 UI。HaminnUI 不接收任意 JavaScript；刷新后只由 APK 调用官方固定的 `window.haminnDevState.restore(state)`，也不开放 HaminnUI 文件。
 
