@@ -169,11 +169,11 @@ export HAMINN_TOKEN='从目标 happ 的开发连接面板复制'
 **Haminn 家族 —— 一个安卓宿主 + 若干可自由改造的应用**
 
 - **Haminn**(宿主,先装这个)：<https://haminn.airen.life/> · <https://github.com/zhyuzh3d/haminnapp> —— **本仓库**
-- **chataxi**(多角色 AI 群聊)：<https://chataxi.airen.life/> · <https://github.com/zhyuzh3d/chataxi>
+- **Chataxi**(多角色 AI 群聊)：<https://chataxi.airen.life/> · <https://github.com/zhyuzh3d/chataxi>
 - **HamDraw**(实时 AI 绘图)：<https://hamdraw.airen.life/> · <https://github.com/zhyuzh3d/hamdraw>
 - **PoseGi**(3D 摆姿生图)：<https://posegi.airen.life/> · <https://github.com/zhyuzh3d/PoseGi>
 
-chataxi,HamDraw,PoseGi 都是**装在 Haminn 里的应用**：它们必须先有 Haminn 宿主才能运行,在 Haminn 的[应用广场](https://haminn.airen.life/pages/happs.html)扫码或复制官方安装清单地址即可添加。它们共用 Haminn 的数据,文件,语音与网络能力,又各自独立,互不依赖,可以按需安装任意一个。
+Chataxi,HamDraw,PoseGi 都是**装在 Haminn 里的应用**：它们必须先有 Haminn 宿主才能运行,在 Haminn 的[应用广场](https://haminn.airen.life/pages/happs.html)扫码或复制官方安装清单地址即可添加。它们共用 Haminn 的数据,文件,语音与网络能力,又各自独立,互不依赖,可以按需安装任意一个。
 
 ## 贡献
 
