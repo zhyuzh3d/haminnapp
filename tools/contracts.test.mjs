@@ -428,7 +428,9 @@ test("the happ settings sheet acts immediately and keeps development read only",
   assert.match(registry, /"source_path" to "TEXT", "source_uri" to "TEXT"/);
   // New columns only reach an existing installation when the schema version moves,
   // because onUpgrade is skipped while the file already carries the current version.
-  assert.match(registry, /private const val VERSION = 14/);
+  assert.match(registry, /private const val VERSION = 15/);
+  assert.match(registry, /"declared_build" to "TEXT"/);
+  assert.match(registry, /ALTER TABLE releases ADD COLUMN \$name \$definition/);
   assert.match(installer, /val retained = app\.sourceUri\?\.let\(::File\)\?\.takeIf \{ it\.isFile \}/);
 });
 
@@ -490,7 +492,7 @@ test("happ source and runtime mode remain independent across Native and HaminnUI
   assert.match(model, /enum class HappRuntimeMode \{ LOCAL, LIVE \}/);
   assert.match(registry, /source_kind TEXT NOT NULL/);
   assert.match(registry, /runtime_mode TEXT NOT NULL/);
-  assert.match(registry, /private const val VERSION = 14/);
+  assert.match(registry, /private const val VERSION = 15/);
   assert.match(registry, /CREATE TABLE IF NOT EXISTS settings/);
   assert.match(registry, /current\.activeReleaseId/);
   assert.match(remote, /encodedPath\("\/haminn-install\.json"\)/);

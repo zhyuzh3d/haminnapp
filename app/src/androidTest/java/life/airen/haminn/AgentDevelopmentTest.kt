@@ -331,6 +331,78 @@ class AgentDevelopmentTest {
         assertEquals("clean", tool("haminn_get_dev_status", JSONObject().put("appId", id)).getString("state"))
     }
 
+    @Test fun devStatusReportsContentFactsAndNamesTheForkWithoutAsking() {
+        val happId = "com.example.agent" + UUID.randomUUID().toString().replace("-", "")
+        val created = tool("haminn_create_dev_app", JSONObject()
+            .put("name", "Fork facts test").put("happId", happId).put("requestId", UUID.randomUUID().toString()))
+        val id = created.getString("appId")
+
+        // A fresh workspace is a copy of the phone's release: the two sides agree, so there is
+        // nothing to ask about and the status has to say so in content terms.
+        val initial = tool("haminn_get_dev_status", JSONObject().put("appId", id))
+        assertEquals("clean", initial.getString("state"))
+        assertTrue(initial.getBoolean("matchesActive"))
+        assertFalse(initial.getBoolean("dirty"))
+        assertFalse(initial.getBoolean("baseOutdated"))
+        assertEquals(initial.getString("treeHash"), initial.getString("activeTreeHash"))
+        assertEquals(created.getString("activeReleaseId"), initial.getJSONObject("activeRelease").getString("releaseId"))
+
+        fun edit(marker: String, revision: Long) = tool("haminn_apply_dev_files", JSONObject()
+            .put("appId", id).put("expectedDevRevision", revision).put("requestId", UUID.randomUUID().toString())
+            .put("refreshMode", "none")
+            .put("files", JSONArray().put(JSONObject().put("path", "index.html").put("content", "<h1>$marker</h1>"))))
+
+        // Only the development side moved. Still nothing to ask about, and the phone's release is
+        // untouched — no version number is consulted anywhere in this.
+        val applied = edit("mine", initial.getLong("revision"))
+        val dirty = tool("haminn_get_dev_status", JSONObject().put("appId", id))
+        assertEquals("dirty", dirty.getString("state"))
+        assertTrue(dirty.getBoolean("dirty"))
+        assertFalse(dirty.getBoolean("baseOutdated"))
+        assertFalse(dirty.getBoolean("matchesActive"))
+        assertEquals(created.getString("activeReleaseId"), app.registry.getInstance(id)!!.activeReleaseId)
+
+        // Publishing my own package is the agreement point: afterwards the workspace must be back
+        // in step, or every later session would ask about a fork that does not exist.
+        val built = tool("haminn_build_dev_package", JSONObject().put("appId", id)
+            .put("expectedDevRevision", applied.getLong("revision")).put("requestId", UUID.randomUUID().toString())
+            .put("versionCode", 2).put("versionName", "1.0.0"))
+        val promoted = tool("haminn_install_dev_package", JSONObject().put("appId", id)
+            .put("expectedDevRevision", applied.getLong("revision")).put("requestId", UUID.randomUUID().toString())
+            .put("buildId", built.getString("buildId")).put("expectedStableReleaseId", created.getString("activeReleaseId")))
+        val published = tool("haminn_get_dev_status", JSONObject().put("appId", id))
+        assertEquals("clean", published.getString("state"))
+        assertTrue(published.getBoolean("matchesActive"))
+        assertFalse(published.getBoolean("baseOutdated"))
+        assertFalse(published.getBoolean("dirty"))
+
+        // Somebody else's package lands on the phone while unpublished edits sit in the copy. Only
+        // now may anything be asked, and the status has to show which side is which. Publishing put
+        // the launch channel back to stable, so the copy has to be entered again before it takes edits.
+        val resumed = tool("haminn_enter_dev_mode", JSONObject().put("appId", id).put("requestId", UUID.randomUUID().toString()))
+        edit("mine again", resumed.getLong("revision"))
+        val foreign = packageZip(mapOf(
+            "haminn.json" to ("""{"schema":2,"happId":"$happId","name":"Fork facts test","author":"someone-else",""" +
+                """"maintainer":"someone-else","version":{"code":9,"name":"9.0.0"},"entry":"index.html"}"""),
+            "index.html" to "<h1>theirs</h1>",
+            "haminn-build.json" to ("""{"schema":1,"happId":"$happId","name":"Fork facts test","versionName":"9.0.0",""" +
+                """"versionCode":9,"author":"someone-else","maintainer":"someone-else","packagedAt":"2026-09-30T00:00:00Z"}"""),
+        ))
+        val installed = kotlinx.coroutines.runBlocking {
+            app.installer.installZip(ByteArrayInputStream(foreign), null, id, "import",
+                expectedReleaseId = promoted.getString("releaseId"))
+        }
+        val forked = tool("haminn_get_dev_status", JSONObject().put("appId", id))
+        assertEquals("forked", forked.getString("state"))
+        assertTrue(forked.getBoolean("dirty"))
+        assertTrue(forked.getBoolean("baseOutdated"))
+        assertFalse(forked.getBoolean("matchesActive"))
+        // The two columns a human has to weigh: what this phone verified, and what the packager says.
+        assertEquals(installed.releaseId, forked.getJSONObject("activeRelease").getString("releaseId"))
+        assertEquals("someone-else",
+            forked.getJSONObject("activeRelease").getJSONObject("declared").getString("maintainer"))
+    }
+
     @Test fun haminnUiIdentityCannotBecomeADevelopmentTarget() {
         val error = assertThrows(life.airen.haminn.model.HaminnException::class.java) {
             app.devWorkspaces.requireDevelopableApp("__haminn_store__")
@@ -400,6 +472,17 @@ class AgentDevelopmentTest {
         server.restoreIfEnabled()
         assertTrue(server.status().getBoolean("active"))
         assertTrue(password == server.passwordForUi())
+    }
+
+    /** A package archive, with or without the declared build record the packaging tools now write. */
+    private fun packageZip(entries: Map<String, String>): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { zip ->
+            entries.forEach { (name, content) ->
+                zip.putNextEntry(ZipEntry(name)); zip.write(content.toByteArray()); zip.closeEntry()
+            }
+        }
+        return bytes.toByteArray()
     }
 
     @Test fun externalClientInterop() {

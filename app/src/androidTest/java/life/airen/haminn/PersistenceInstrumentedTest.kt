@@ -608,6 +608,39 @@ class PersistenceInstrumentedTest {
         assertEquals(403, policy.intercept(request("https://api.other.test/data", mapOf("Sec-Fetch-Dest" to "empty")))!!.statusCode)
     }
 
+    @Test fun declaredBuildTravelsWithTheReleaseAndStaysAPlainClaim() = runBlocking {
+        val app = context.applicationContext as HaminnApplication
+        val happId = "com.example.declared"
+        val record = """{"schema":1,"happId":"$happId","name":"Declared","versionName":"2.0.0","versionCode":2,""" +
+            """"author":"author","maintainer":"maintainer","packagedAt":"2026-09-30T00:00:00Z",""" +
+            """"basedOn":{"name":"Declared","versionName":"1.0.0","maintainer":"maintainer"}}"""
+        val manifest = """{"schema":2,"happId":"$happId","name":"Declared","author":"author","maintainer":"maintainer",""" +
+            """"version":{"code":2,"name":"2.0.0"},"entry":"index.html"}"""
+        val installed = app.installer.installZip(ByteArrayInputStream(zipBytesOf(mapOf(
+            "haminn.json" to manifest.toByteArray(),
+            "index.html" to "<h1>declared</h1>".toByteArray(),
+            "haminn-build.json" to record.toByteArray(),
+        ))), null)
+        createdApps += installed.appId
+        // It arrives with the release, so it survives the package being gone …
+        val declared = JSONObject(app.registry.getRelease(installed.releaseId)!!.declaredBuild!!)
+        assertEquals("maintainer", declared.getString("maintainer"))
+        assertEquals("2026-09-30T00:00:00Z", declared.getString("packagedAt"))
+        assertEquals("1.0.0", declared.getJSONObject("basedOn").getString("versionName"))
+
+        // … and it stays a claim: a package without one, and a package with a broken one, both
+        // install exactly like any other.
+        val plain = app.installer.installZip(ByteArrayInputStream(zipOf(mapOf("index.html" to "plain"))), "Plain fixture")
+        createdApps += plain.appId
+        assertEquals(null, app.registry.getRelease(plain.releaseId)!!.declaredBuild)
+        val broken = app.installer.installZip(ByteArrayInputStream(zipBytesOf(mapOf(
+            "index.html" to "broken".toByteArray(),
+            "haminn-build.json" to "{ this is not json".toByteArray(),
+        ))), "Broken declaration fixture")
+        createdApps += broken.appId
+        assertEquals(null, app.registry.getRelease(broken.releaseId)!!.declaredBuild)
+    }
+
     private fun request(value: String, headers: Map<String, String> = emptyMap(), method: String = "GET") = object : WebResourceRequest {
         override fun getUrl(): Uri = Uri.parse(value)
         override fun isForMainFrame() = true

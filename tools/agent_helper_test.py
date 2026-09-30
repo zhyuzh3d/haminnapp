@@ -467,4 +467,207 @@ class AgentHelperTest(unittest.TestCase):
             self.assertIn("--version failed", failing["note"])
 
 
+MINE = "a" * 64
+FOREIGN = "f" * 64
+
+
+def fork_status(dirty=True, outdated=True, matches=False, active=FOREIGN, version_code=900):
+    """What the device reports about the workspace and the release it currently runs."""
+    return {
+        "revision": 4, "treeHash": "dev-tree", "devVersion": {"code": 1, "name": "1.0.0"},
+        "dirty": dirty, "baseOutdated": outdated, "matchesActive": matches, "activeTreeHash": active,
+        "activeRelease": {"releaseId": "rel-9", "treeHash": active, "versionName": "9.9.9",
+                          "versionCode": version_code},
+    }
+
+
+class ForkDevice:
+    """A phone that answers with content facts and records every request it was given."""
+
+    def __init__(self, status, tree=None):
+        self.status = status
+        self.tree = tree or {}
+        self.calls = []
+
+    def tool(self, name, arguments=None):
+        self.calls.append((name, arguments or {}))
+        if name == "haminn_list_apps":
+            return {"apps": [{"appId": "app-id", "happId": "io.example.happ"}]}
+        if name == "haminn_prepare_happ_development":
+            return dict(self.status, appId="app-id")
+        if name == "haminn_runtime_status":
+            return {"appId": "app-id", "launchChannel": "dev"}
+        if name == "haminn_reset_dev_workspace":
+            return {"appId": "app-id", "revision": 0}
+        if name == "haminn_download_dev_tree":
+            return {"downloadUrl": "http://device/v2/apps/app-id/dev/tree",
+                    "sha256": hashlib.sha256(self.archive()).hexdigest()}
+        if name == "haminn_get_happ_dev_status":
+            return {"appId": "app-id", "revision": 9, "treeHash": "phone-tree"}
+        if name == "haminn_list_dev_files":
+            return {"revision": 9, "treeHash": "phone-tree", "files": []}
+        if name == "haminn_sync_dev_changes":
+            return {"revision": 9, "treeHash": "new", "changedPaths": []}
+        if name == "haminn_get_page_state":
+            return {"appId": "app-id"}
+        if name == "haminn_get_app":
+            return {"appId": "app-id", "activeReleaseId": "rel-9", "launchChannel": "stable"}
+        if name == "haminn_list_releases":
+            active = self.status.get("activeRelease") or {}
+            return {"releases": [{"releaseId": "rel-9", "treeHash": self.status["activeTreeHash"],
+                                  "versionCode": active.get("versionCode"),
+                                  "versionName": active.get("versionName")}]}
+        raise AssertionError(name)
+
+    def archive(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, text in self.tree.items():
+                archive.writestr(name, text)
+        return buffer.getvalue()
+
+    def request(self, path, method="GET", data=None, headers=None, authenticated=True):
+        return self.archive()
+
+
+class ForkResolutionTest(unittest.TestCase):
+    """The phone's release and the local workspace can drift apart; content decides, never a version."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.home = Path(self.temp.name)
+        self.addCleanup(self.temp.cleanup)
+        # The ledger and the backups both live under the home directory, and neither belongs there
+        # for real while a test is running.
+        home = patch.object(Path, "home", staticmethod(lambda: self.home))
+        home.start()
+        self.addCleanup(home.stop)
+
+    def workspace(self, name="work"):
+        root = self.home / name
+        root.mkdir()
+        (root / "haminn.json").write_text(json.dumps(
+            {"happId": "io.example.happ", "version": {"code": 2, "name": "1.0.0"}, "entry": "index.html"}))
+        (root / "index.html").write_text("<h1>local</h1>")
+        return root
+
+    def backups(self):
+        directory = self.home / "haminn" / "dev-backups" / "io.example.happ"
+        return [item for item in directory.glob("*.zip") if not item.name.endswith("-device.zip")]
+
+    def test_the_published_ledger_remembers_only_what_this_machine_published(self):
+        ledger = helper.happ_dev_path()
+        self.assertEqual([], helper.published_hashes("io.example.happ"))
+        self.assertTrue(helper.remember_published("io.example.happ", MINE))
+        self.assertFalse(helper.remember_published("io.example.happ", MINE))
+        self.assertEqual([MINE], helper.published_hashes("io.example.happ"))
+        self.assertFalse(helper.remember_published("io.example.happ", ""))
+        self.assertEqual([], helper.published_hashes("io.example.other"))
+        # The file already holds other facts about other happs: adding a hash must not disturb them.
+        document = json.loads(ledger.read_text(encoding="utf-8"))
+        document["happs"].setdefault("io.example.other", {})["directory"] = "/elsewhere"
+        ledger.write_text(json.dumps(document), encoding="utf-8")
+        helper.remember_published("io.example.happ", "b" * 64)
+        document = json.loads(ledger.read_text(encoding="utf-8"))
+        self.assertEqual(1, document["schema"])
+        self.assertEqual("/elsewhere", document["happs"]["io.example.other"]["directory"])
+        self.assertEqual([MINE, "b" * 64], helper.published_hashes("io.example.happ"))
+        # Anything a hand-edited or older file might contain that is not a hash is not a hash.
+        document["happs"]["io.example.happ"]["published"] = ["c" * 64, 17, None]
+        ledger.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(["c" * 64], helper.published_hashes("io.example.happ"))
+
+    def test_the_ledger_is_bounded_and_drops_the_oldest(self):
+        with patch.object(helper, "MAX_PUBLISHED_HASHES", 2):
+            for digit in "abc":
+                helper.remember_published("io.example.happ", digit * 64)
+        self.assertEqual(["b" * 64, "c" * 64], helper.published_hashes("io.example.happ"))
+
+    def test_only_both_sides_moving_asks_for_a_decision(self):
+        helper.remember_published("io.example.happ", MINE)
+        # A local version number that is far ahead of the phone's changes nothing: numbers move on
+        # every push, so they can neither prove agreement nor prove who is newer.
+        manifest = {"happId": "io.example.happ", "version": {"code": 99, "name": "99.0.0"}}
+        cases = [
+            ("neither side moved", fork_status(False, False, False), False),
+            ("only development moved", fork_status(True, False, False), False),
+            ("only the phone moved", fork_status(False, True, False), False),
+            ("both moved, phone holds a foreign package", fork_status(True, True, False, FOREIGN), True),
+            ("both moved, phone holds my own package", fork_status(True, True, False, MINE), False),
+            ("both moved, the hash is unknown", fork_status(True, True, False, None), True),
+            ("the phone's hash is not a hash", fork_status(True, True, False, MINE.upper()), True),
+            ("both moved but the content is identical", fork_status(True, True, True, FOREIGN), False),
+        ]
+        for label, status, expected in cases:
+            with self.subTest(label):
+                self.assertEqual(expected, helper.describe_fork(manifest, status)["forked"])
+        self.assertTrue(helper.describe_fork(manifest, fork_status(True, True, False, MINE))["publishedByMe"])
+        self.assertFalse(helper.describe_fork(manifest, fork_status(True, True, False, FOREIGN))["publishedByMe"])
+        self.assertEqual("9.9.9",
+                         helper.describe_fork(manifest, fork_status())["activeRelease"]["versionName"])
+
+    def test_prepare_dev_stops_and_asks_rather_than_overwriting_local_work(self):
+        device = ForkDevice(fork_status())
+        with patch.object(sys, "stdin", io.StringIO("")):
+            result = helper.prepare_dev(device, self.workspace())
+        self.assertFalse(result["prepared"])
+        self.assertTrue(result["needsDecision"])
+        self.assertEqual(["continue", "device"], result["decisions"])
+        self.assertTrue(result["fork"]["forked"])
+        self.assertEqual("9.9.9", result["fork"]["activeRelease"]["versionName"])
+        names = [name for name, _ in device.calls]
+        for forbidden in ("haminn_sync_dev_changes", "haminn_replace_dev_tree",
+                          "haminn_reset_dev_workspace", "haminn_download_dev_tree"):
+            self.assertNotIn(forbidden, names, forbidden)
+
+    def test_prepare_dev_syncs_without_asking_when_only_one_side_moved(self):
+        for index, (label, status) in enumerate([("development only", fork_status(True, False, False)),
+                                                 ("phone only", fork_status(False, True, False)),
+                                                 ("identical content", fork_status(True, True, True, FOREIGN))]):
+            with self.subTest(label):
+                device = ForkDevice(status)
+                with patch.object(sys, "stdin", io.StringIO("")):
+                    result = helper.prepare_dev(device, self.workspace("work-" + str(index)))
+                self.assertNotIn("needsDecision", result)
+                self.assertIn("haminn_sync_dev_changes", [name for name, _ in device.calls])
+
+    def test_prepare_dev_trusts_my_own_package_enough_not_to_ask(self):
+        helper.remember_published("io.example.happ", MINE)
+        device = ForkDevice(fork_status(True, True, False, MINE))
+        with patch.object(sys, "stdin", io.StringIO("")):
+            result = helper.prepare_dev(device, self.workspace())
+        self.assertNotIn("needsDecision", result)
+        self.assertIn("haminn_sync_dev_changes", [name for name, _ in device.calls])
+
+    def test_the_device_option_backs_up_local_work_before_adopting_the_phones_code(self):
+        root = self.workspace()
+        (root / "app").mkdir()
+        (root / "app" / "main.js").write_text("unpublished work")
+        device = ForkDevice(fork_status(), tree={"index.html": "<h1>phone</h1>", "haminn.json": "{}"})
+        result = helper.prepare_dev(device, root, sync_policy="device")
+        backups = self.backups()
+        self.assertEqual(1, len(backups), backups)
+        with zipfile.ZipFile(backups[0]) as archive:
+            self.assertEqual("unpublished work", archive.read("app/main.js").decode("utf-8"))
+        self.assertEqual("<h1>phone</h1>", (root / "index.html").read_text(encoding="utf-8"))
+        self.assertFalse((root / "app" / "main.js").exists())
+        self.assertEqual("reset", result["sync"]["refreshState"])
+        names = [name for name, _ in device.calls]
+        # Resetting first is what makes the download the *release* rather than the leftover tree.
+        self.assertLess(names.index("haminn_reset_dev_workspace"), names.index("haminn_download_dev_tree"))
+
+    def test_publishing_refuses_to_overwrite_a_foreign_package(self):
+        # The active release carries a *lower* version code than the local manifest on purpose:
+        # otherwise the older "version must increase" guard raises first and this test would pass
+        # without the content check ever running.
+        device = ForkDevice(fork_status(version_code=1))
+        prepared = {"appId": "app-id", "status": fork_status(version_code=1), "sync": {"revision": 4}, "render": None}
+        with patch.object(helper, "prepare_dev", return_value=prepared):
+            with self.assertRaisesRegex(RuntimeError, "本机发布的包"):
+                helper.update_dir(device, self.workspace())
+        names = [name for name, _ in device.calls]
+        self.assertNotIn("haminn_build_dev_package", names)
+        self.assertNotIn("haminn_install_dev_package", names)
+
+
 if __name__ == "__main__": unittest.main()

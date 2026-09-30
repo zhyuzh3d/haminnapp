@@ -153,6 +153,7 @@ class InstallCoordinator(
                 registry.updateOperation(operationId, "validating")
                 extractValidated(zipFile, webRoot)
                 val metadata = PackageManifestReader.read(webRoot)
+                val declaredBuild = PackageManifestReader.readDeclaredBuild(webRoot)
                 val entry = metadata?.entry ?: "index.html"
                 validateRelativePath(entry)
                 check(File(webRoot, entry).isFile) { "入口文件不存在：$entry" }
@@ -242,6 +243,9 @@ class InstallCoordinator(
                     routing = metadata?.routing ?: "hash",
                     happId = metadata?.happId,
                     publisherKeyId = publisher?.keyId,
+                    // Kept purely so a later "who made this, and based on what" question has
+                    // something to show. It is never read back as a fact about the package.
+                    declaredBuild = declaredBuild,
                 )
                 registry.updateOperation(operationId, "committing")
                 if (archivedInstance != null) {

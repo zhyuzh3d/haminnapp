@@ -51,6 +51,49 @@ class DevWorkspaceManager(
         return app
     }
 
+    /** The active release's own content hash, or null when the app has no active release. */
+    private fun activeTreeHash(appId: String): String? =
+        registry.getInstance(appId)?.activeReleaseId?.let { registry.getRelease(it)?.treeHash }
+
+    /**
+     * What the phone currently runs as its stable release, plus whatever the package says about
+     * itself.
+     *
+     * Everything under `declared` is a claim by whoever packaged it — the ledger the developer-side
+     * helper keeps is the only trustworthy answer to "did I publish this". It is handed out here
+     * because a human deciding what to do needs to see who packaged what and when, not because any
+     * decision may be made from it. It travels with the release because that is what makes it
+     * survive the package being deleted or replaced.
+     */
+    private fun activeReleaseJson(appId: String): Any {
+        val releaseId = registry.getInstance(appId)?.activeReleaseId ?: return JSONObject.NULL
+        val release = registry.getRelease(releaseId) ?: return JSONObject.NULL
+        val declared = release.declaredBuild?.let { runCatching { JSONObject(it) }.getOrNull() }
+        return JSONObject().put("releaseId", release.releaseId)
+            .put("treeHash", release.treeHash)
+            .put("versionName", release.versionName ?: JSONObject.NULL)
+            .put("versionCode", release.versionCode ?: JSONObject.NULL)
+            .put("provenance", release.provenance)
+            .put("createdAt", release.createdAt)
+            .put("declared", declared ?: JSONObject.NULL)
+    }
+
+    /**
+     * How the workspace stands against the active release.
+     *
+     * Content decides, never a version number. `forked` is the only value that means "both sides
+     * moved since they last agreed", and therefore the only one a caller has to ask the user about;
+     * `base-outdated` means the workspace still equals the baseline, so following the new release
+     * loses nothing and needs no question.
+     */
+    private fun workspaceState(workspace: DevWorkspace, activeReleaseId: String?): String = when {
+        activeReleaseId != null && workspace.treeHash == registry.getRelease(activeReleaseId)?.treeHash -> "clean"
+        workspace.dirty && workspace.baseReleaseId != activeReleaseId -> "forked"
+        workspace.baseReleaseId != activeReleaseId -> "base-outdated"
+        workspace.dirty -> "dirty"
+        else -> "clean"
+    }
+
     fun status(appId: String): JSONObject = synchronized(lock(appId)) {
         val app = requireDevelopableApp(appId)
         val current = registry.getDevWorkspace(appId)
@@ -62,11 +105,10 @@ class DevWorkspaceManager(
         } else current
         workspace.toJson(app.activeReleaseId)
             .put("devVersion", versionOf(appId, snapshot(appId).entries))
-            .put("state", when {
-                workspace.baseReleaseId != app.activeReleaseId -> "base-outdated"
-                workspace.dirty -> "dirty"
-                else -> "clean"
-            })
+            .put("matchesActive", workspace.treeHash == activeTreeHash(appId))
+            .put("activeTreeHash", activeTreeHash(appId) ?: JSONObject.NULL)
+            .put("activeRelease", activeReleaseJson(appId))
+            .put("state", workspaceState(workspace, app.activeReleaseId))
             .put("launchChannel", registry.getInstance(appId)!!.launchChannel.name.lowercase())
     }
 
@@ -82,7 +124,10 @@ class DevWorkspaceManager(
         }
         registry.setLaunchChannel(appId, LaunchChannel.DEV)
         workspace.toJson(releaseId).put("devVersion", versionOf(appId, snapshot(appId).entries))
-            .put("state", if (workspace.dirty) "dirty" else "clean").put("launchChannel", "dev")
+            .put("matchesActive", workspace.treeHash == activeTreeHash(appId))
+            .put("activeTreeHash", activeTreeHash(appId) ?: JSONObject.NULL)
+            .put("activeRelease", activeReleaseJson(appId))
+            .put("state", workspaceState(workspace, releaseId)).put("launchChannel", "dev")
     }
 
     /** Prepare or recover a workspace without changing the app launch channel. */
@@ -96,11 +141,11 @@ class DevWorkspaceManager(
             !existing.dirty && existing.baseReleaseId != releaseId -> rebuild(appId, existing, releaseId, keepRevision = true)
             else -> existing
         }
-        workspace.toJson(releaseId).put("devVersion", versionOf(appId, snapshot(appId).entries)).put("state", when {
-            workspace.baseReleaseId != releaseId -> "base-outdated"
-            workspace.dirty -> "dirty"
-            else -> "clean"
-        }).put("launchChannel", app.launchChannel.name.lowercase())
+        workspace.toJson(releaseId).put("devVersion", versionOf(appId, snapshot(appId).entries))
+            .put("matchesActive", workspace.treeHash == activeTreeHash(appId))
+            .put("activeTreeHash", activeTreeHash(appId) ?: JSONObject.NULL)
+            .put("activeRelease", activeReleaseJson(appId))
+            .put("state", workspaceState(workspace, releaseId)).put("launchChannel", app.launchChannel.name.lowercase())
     }
 
     fun leave(appId: String): JSONObject = synchronized(lock(appId)) {
@@ -451,7 +496,8 @@ class DevWorkspaceManager(
         snapshots[appId] = Snapshot(committed, entries.toMap())
         pruneManifests(appId, generation)
         return committed.toJson(registry.getInstance(appId)?.activeReleaseId)
-            .put("state", if (committed.dirty) "dirty" else "clean")
+            .put("matchesActive", committed.treeHash == activeTreeHash(appId))
+            .put("state", workspaceState(committed, registry.getInstance(appId)?.activeReleaseId))
             .put("changedPaths", JSONArray(changedPaths.toList()))
             .put("commitState", "committed")
     }

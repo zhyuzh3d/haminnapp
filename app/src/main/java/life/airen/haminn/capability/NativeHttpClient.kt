@@ -10,6 +10,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Dns
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -29,6 +31,7 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.Proxy
+import java.net.UnknownHostException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ArrayBlockingQueue
@@ -124,28 +127,44 @@ class NativeHttpClient(private val files: FileStore) {
             response.use { result ->
                 val headers = publicHeaders(result)
                 if (prepared.method == "HEAD") return responseMeta(result, headers).put("body", JSONObject.NULL)
-                val body = result.body
-                val declaredLength = body.contentLength()
-                if (declaredLength > MAX_RESPONSE_BODY) throw HaminnException(ErrorCodes.QUOTA, "响应超过 64 MiB")
-                val contentType = body.contentType()?.toString() ?: "application/octet-stream"
-                if (declaredLength < 0 || declaredLength > INLINE_RESPONSE_BYTES) {
-                    val stored = withContext(Dispatchers.IO) {
-                        body.byteStream().use { files.import(appId, generation, it, suggestedName(Uri.parse(url)), contentType) }
+                /* 读正文这一段必须自己兜异常。上面 execute() 只包住了 call.execute() ——
+                   那一步只拿到响应头,正文到这里才从连接上读。读超时(对端把连接挂住)
+                   抛的是 SocketTimeoutException,连接被中途关掉抛 SocketException,
+                   两个都不是 HaminnException,裸抛出去会被桥按兜底处理成
+                   E_INTERNAL +「内部错误」:页面侧拿到的是一个不可重试、也说不清原因的错误。
+                   2026-09-30 真机现场就是这样:一次生成等了 80 多秒只报「内部错误」,
+                   而服务端那张图早已落盘 —— 按 700ms 的真实节奏压同一个接口,
+                   110 次里有 5 次是这种读超时,每次约 15 秒(正是页面那个轮询超时值)。
+                   包成 E_NETWORK(retryable)后,页面侧才认得"这次通信没成,可以再问一次"。
+                   写法与下面 readStream 一致:自己的异常原样放行,其余一律算网络故障。 */
+                try {
+                    val body = result.body
+                    val declaredLength = body.contentLength()
+                    if (declaredLength > MAX_RESPONSE_BODY) throw HaminnException(ErrorCodes.QUOTA, "响应超过 64 MiB")
+                    val contentType = body.contentType()?.toString() ?: "application/octet-stream"
+                    if (declaredLength < 0 || declaredLength > INLINE_RESPONSE_BYTES) {
+                        val stored = withContext(Dispatchers.IO) {
+                            body.byteStream().use { files.import(appId, generation, it, suggestedName(Uri.parse(url)), contentType) }
+                        }
+                        return responseMeta(result, headers).put("file", stored)
                     }
-                    return responseMeta(result, headers).put("file", stored)
-                }
-                val bytes = withContext(Dispatchers.IO) { body.bytes() }
-                if (bytes.size > INLINE_RESPONSE_BYTES) {
-                    val stored = withContext(Dispatchers.IO) {
-                        files.import(appId, generation, bytes.inputStream(), suggestedName(Uri.parse(url)), contentType)
+                    val bytes = withContext(Dispatchers.IO) { body.bytes() }
+                    if (bytes.size > INLINE_RESPONSE_BYTES) {
+                        val stored = withContext(Dispatchers.IO) {
+                            files.import(appId, generation, bytes.inputStream(), suggestedName(Uri.parse(url)), contentType)
+                        }
+                        return responseMeta(result, headers).put("file", stored)
                     }
-                    return responseMeta(result, headers).put("file", stored)
+                    val textual = contentType.startsWith("text/") || contentType.contains("json") || contentType.contains("xml")
+                    return responseMeta(result, headers).put(
+                        if (textual) "bodyText" else "bodyBase64",
+                        if (textual) bytes.toString(Charsets.UTF_8) else Base64.encodeToString(bytes, Base64.NO_WRAP),
+                    )
+                } catch (error: HaminnException) {
+                    throw error
+                } catch (error: Throwable) {
+                    throw HaminnException(ErrorCodes.NETWORK, error.message ?: "读取响应体失败", true)
                 }
-                val textual = contentType.startsWith("text/") || contentType.contains("json") || contentType.contains("xml")
-                return responseMeta(result, headers).put(
-                    if (textual) "bodyText" else "bodyBase64",
-                    if (textual) bytes.toString(Charsets.UTF_8) else Base64.encodeToString(bytes, Base64.NO_WRAP),
-                )
             }
         }
     }
@@ -435,15 +454,34 @@ class NativeHttpClient(private val files: FileStore) {
         return NetworkTarget(uri, addresses, authorization)
     }
 
-    private fun client(target: NetworkTarget, timeoutMs: Long): OkHttpClient {
-        val fixedDns = Dns { hostname ->
-            if (!hostname.equals(target.uri.host, true)) throw java.net.UnknownHostException("Unexpected host")
-            target.addresses
+    private fun client(target: NetworkTarget, timeoutMs: Long): OkHttpClient =
+        baseClient.newBuilder()
+            .dns(PinnedDns(target.uri.host!!, target.addresses))
+            .connectTimeout(minOf(timeoutMs, 15_000), TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutMs, TimeUnit.MILLISECONDS).writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .build()
+
+    /**
+     * 钉死 DNS:解析只做一次并校验过地址类别,连接只许发往那批地址。
+     *
+     * **值相等不是风格问题,是连接复用能不能发生的前提。** 这一层原来写的是匿名
+     * `Dns { … }` lambda(相等性 = 身份,每个请求都不同),而 OkHttp 的连接池是拿
+     * `Address` 当键的,`Address` 把 `Dns` 也算进相等性 —— 于是即使共用同一个池,
+     * 每个请求也会算出不同的 Address,池子次次找不到。
+     * 地址按 IP 字节比较(`InetAddress` 的 equals 只比字节,不比解析出来的名字),
+     * 所以同一个目标重复解析到同一批地址时,两次请求算同一个 Address、命中同一条连接。
+     * 校验强度不变:addresses 仍是 resolveAndValidate 那次校验的结果,只是不再每次重解析。
+     */
+    private class PinnedDns(private val host: String, private val addresses: List<InetAddress>) : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            if (!hostname.equals(host, true)) throw UnknownHostException("Unexpected host")
+            return addresses
         }
-        return OkHttpClient.Builder()
-            .dns(fixedDns).proxy(Proxy.NO_PROXY).followRedirects(false).followSslRedirects(false)
-            .retryOnConnectionFailure(false).connectTimeout(minOf(timeoutMs, 15_000), TimeUnit.MILLISECONDS)
-            .readTimeout(timeoutMs, TimeUnit.MILLISECONDS).writeTimeout(timeoutMs, TimeUnit.MILLISECONDS).build()
+
+        override fun equals(other: Any?): Boolean =
+            other is PinnedDns && host.equals(other.host, true) && addresses == other.addresses
+
+        override fun hashCode(): Int = host.lowercase().hashCode() * 31 + addresses.hashCode()
     }
 
     private fun socketClient(target: NetworkTarget, timeoutMs: Long): OkHttpClient = client(target, timeoutMs)
@@ -613,6 +651,33 @@ class NativeHttpClient(private val files: FileStore) {
         name.contains("api-key") || name.contains("apikey") || name.endsWith("-token") || name.startsWith("x-amz-")
 
     companion object {
+        /**
+         * 连接复用的载体,**进程级**。
+         *
+         * 2026-09-30 现场:页面按 700ms 的节奏轮询同一个接口(110 次),其中 5 次读超时、
+         * 每次约 15 秒,最后一次把整轮生成判死。成因之一是这一层原来每个请求都
+         * `OkHttpClient.Builder()`,**而连接池是客户端自带的** —— 每个新客户端都带一个
+         * 空池,于是每次调用都是一条全新 TCP 连接,上一次那条只能等超时回收。
+         * 服务端(ComfyUI)生成时本来就忙,还要每 700ms 多接一条新连接、多走一次
+         * 握手与 accept 队列;复用之后轮询走的是同一条已建好的连接。
+         *
+         * 池与调度器放 companion 而不是实例字段:Activity 重建(旋转、从后台回来)会
+         * 重新 new 一个 NativeHttpClient,挂在实例上的话一次重建就把建好的连接全丢了。
+         * 这也是 OkHttp 自己的建议(一个应用一个客户端)。
+         *
+         * 只共享池与调度器,**不共享**超时与 DNS:超时不参与 Address 相等性,
+         * DNS 由 PinnedDns 的值相等性保证同目标同键,所以每个请求仍拿到自己的
+         * 超时与钉定地址,而连接照样复用。授权仍然逐次经过 request() 里的 authorize(),
+         * 池不会绕过任何一次授权判断;跨源也不可能复用(Address 含 scheme/host/port)。
+         */
+        private val connectionPool = ConnectionPool(MAX_IDLE_CONNECTIONS, CONNECTION_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS)
+        private val dispatcher = Dispatcher()
+        private val baseClient: OkHttpClient = OkHttpClient.Builder()
+            .connectionPool(connectionPool).dispatcher(dispatcher)
+            .proxy(Proxy.NO_PROXY).followRedirects(false).followSslRedirects(false)
+            .retryOnConnectionFailure(false)
+            .build()
+
         private val METHODS = setOf("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
         private val FORBIDDEN_HEADERS = setOf("host", "content-length", "transfer-encoding", "connection", "proxy-connection", "upgrade", "te", "trailer")
         private val CREDENTIAL_HEADERS = setOf("authorization", "cookie", "proxy-authorization", "x-api-key", "api-key", "xi-api-key", "x-goog-api-key")
@@ -639,5 +704,16 @@ class NativeHttpClient(private val files: FileStore) {
         private const val MAX_SOCKET_TOTAL_BYTES = 64L * 1024 * 1024
         private const val MAX_SOCKET_READ_TIMEOUT_MS = 60_000L
         private const val STREAM_IDLE_TTL_MS = 2 * 60 * 1000L
+        /* 池子只服务**成串的**请求,所以闲置上限必须同时守住两侧:
+           ① 要高于客户端自己的请求节奏 —— 现场是 700ms 轮询,3 秒有 4 倍余量;
+           ② 要低于我们可能遇到的**最短**服务端 keep-alive —— 常见默认值里 Apache 是 5 秒
+              (nginx / aiohttp 是 75 秒)。高于它,池子就会把服务端已经关掉的连接递出去。
+           实测那条路的代价(2026-09-30 真机):死连接上的一次请求是 21ms 返回一个
+           **可重试**的 E_NETWORK(unexpected end of stream),不挂、也不会判死整轮生成;
+           但宿主是**故意**关掉传输层自动重放(retryOnConnectionFailure=false)的,
+           既然不许重放,就不该制造需要重放的场景 —— 所以宁可把闲置上限收短:
+           间隔超过 3 秒的下一次请求本来就等于新建连接,和改之前完全一样,没有回退。 */
+        private const val MAX_IDLE_CONNECTIONS = 5
+        private const val CONNECTION_KEEP_ALIVE_SECONDS = 3L
     }
 }

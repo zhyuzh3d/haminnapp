@@ -64,6 +64,7 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
               routing TEXT NOT NULL DEFAULT 'hash',
               happ_id TEXT,
               publisher_key_id TEXT,
+              declared_build TEXT,
               relative_root TEXT NOT NULL, created_at INTEGER NOT NULL,
               UNIQUE(app_id, tree_hash)
             )
@@ -105,6 +106,11 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
             )
         """.trimIndent())
         createSettings(db)
+        // The two DDL copies above and in createMissingTables() would otherwise have to be kept in
+        // sync by hand, and a column added to only one of them is invisible on whichever path did
+        // not get it: fresh installs (onCreate) or upgrades (onUpgrade). Running the additive pass
+        // here too makes createMissingTables() the single self-healing authority for new columns.
+        createMissingTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -122,7 +128,7 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
 
     private fun createMissingTables(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS instances (app_id TEXT PRIMARY KEY, name TEXT NOT NULL, source_kind TEXT NOT NULL, runtime_mode TEXT NOT NULL, launch_channel TEXT NOT NULL DEFAULT 'STABLE', start_url TEXT NOT NULL, primary_origin TEXT NOT NULL, live_url TEXT, web_profile_name TEXT NOT NULL UNIQUE, trust_revision INTEGER NOT NULL DEFAULT 1, active_release_id TEXT, active_data_generation TEXT NOT NULL, source_adapter TEXT NOT NULL DEFAULT 'unknown', source_spec TEXT NOT NULL DEFAULT '{}', developer_enabled INTEGER NOT NULL DEFAULT 0, favorite INTEGER NOT NULL DEFAULT 0, icon_url TEXT, default_icon_url TEXT, happ_id TEXT, publisher_key_id TEXT, download_url TEXT, download_version_code INTEGER, download_version_name TEXT, update_url TEXT, source_path TEXT, source_uri TEXT, notification_enabled INTEGER NOT NULL DEFAULT 0, allow_cross_origin_network INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'ready', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)")
-        db.execSQL("CREATE TABLE IF NOT EXISTS releases (release_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, tree_hash TEXT NOT NULL, provenance TEXT NOT NULL, version_code INTEGER, version_name TEXT, source_revision TEXT, entry_path TEXT NOT NULL DEFAULT 'index.html', routing TEXT NOT NULL DEFAULT 'hash', happ_id TEXT, publisher_key_id TEXT, relative_root TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(app_id, tree_hash))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS releases (release_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, tree_hash TEXT NOT NULL, provenance TEXT NOT NULL, version_code INTEGER, version_name TEXT, source_revision TEXT, entry_path TEXT NOT NULL DEFAULT 'index.html', routing TEXT NOT NULL DEFAULT 'hash', happ_id TEXT, publisher_key_id TEXT, declared_build TEXT, relative_root TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(app_id, tree_hash))")
         db.execSQL("CREATE INDEX IF NOT EXISTS releases_by_app_time ON releases(app_id, created_at DESC)")
         createDevWorkspaces(db)
         db.execSQL("CREATE TABLE IF NOT EXISTS grants (app_id TEXT NOT NULL, trust_revision INTEGER NOT NULL, capability TEXT NOT NULL, resource_scope TEXT NOT NULL DEFAULT '', decision TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(app_id, trust_revision, capability, resource_scope))")
@@ -136,6 +142,10 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
         // file version is still behind, so every new column must come with a VERSION bump.
         val additions = mapOf("launch_channel" to "TEXT NOT NULL DEFAULT 'STABLE'", "source_adapter" to "TEXT NOT NULL DEFAULT 'unknown'", "source_spec" to "TEXT NOT NULL DEFAULT '{}'", "developer_enabled" to "INTEGER NOT NULL DEFAULT 0", "favorite" to "INTEGER NOT NULL DEFAULT 0", "icon_url" to "TEXT", "default_icon_url" to "TEXT", "happ_id" to "TEXT", "publisher_key_id" to "TEXT", "download_url" to "TEXT", "download_version_code" to "INTEGER", "download_version_name" to "TEXT", "update_url" to "TEXT", "source_path" to "TEXT", "source_uri" to "TEXT", "notification_enabled" to "INTEGER NOT NULL DEFAULT 0", "allow_cross_origin_network" to "INTEGER NOT NULL DEFAULT 0", "state" to "TEXT NOT NULL DEFAULT 'ready'")
         additions.filterKeys { it !in columns }.forEach { (name, definition) -> db.execSQL("ALTER TABLE instances ADD COLUMN $name $definition") }
+        val releaseColumns = db.rawQuery("PRAGMA table_info(releases)", null).use { c -> buildSet { while (c.moveToNext()) add(c.getString(1)) } }
+        mapOf("declared_build" to "TEXT")
+            .filterKeys { it !in releaseColumns }
+            .forEach { (name, definition) -> db.execSQL("ALTER TABLE releases ADD COLUMN $name $definition") }
     }
 
     fun listInstances(): List<WebAppInstance> =
@@ -751,6 +761,7 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
         put("version_code", versionCode); put("version_name", versionName); put("source_revision", sourceRevision)
         put("entry_path", entryPath)
         put("routing", routing); put("happ_id", happId); put("publisher_key_id", publisherKeyId)
+        put("declared_build", declaredBuild)
         put("relative_root", relativeRoot); put("created_at", createdAt)
     }
 
@@ -782,7 +793,8 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
         versionName = stringOrNull("version_name"), sourceRevision = stringOrNull("source_revision"),
         entryPath = string("entry_path"),
         relativeRoot = string("relative_root"), createdAt = long("created_at"),
-        routing = string("routing"), happId = stringOrNull("happ_id"), publisherKeyId = stringOrNull("publisher_key_id")
+        routing = string("routing"), happId = stringOrNull("happ_id"), publisherKeyId = stringOrNull("publisher_key_id"),
+        declaredBuild = stringOrNull("declared_build")
     )
 
     private fun DevWorkspace.values() = ContentValues().apply {
@@ -867,7 +879,7 @@ class AppRegistry(private val context: Context) : SQLiteOpenHelper(context, "ham
 
     companion object {
         // 14 adds instances.source_path / source_uri so a locally imported package can be reinstalled.
-        private const val VERSION = 14
+        private const val VERSION = 15
         const val SETTING_THEME = "theme"
     }
 }

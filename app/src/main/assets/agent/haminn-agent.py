@@ -853,7 +853,6 @@ def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, worksp
                 "pageVisible": demonstrated, "foregroundClaimed": reclaimed is not None}
     local_version = manifest.get("version") if isinstance(manifest.get("version"), dict) else {}
     remote_version = status.get("devVersion") if isinstance(status.get("devVersion"), dict) else {}
-    versions_differ = local_version != remote_version
     # Resuming the workspace does not take the runtime back from another happ, and
     # only the runtime in front can acknowledge a render. Claim it now, so that
     # `prepared: true` means "visible and rendered" rather than "committed in the
@@ -862,25 +861,40 @@ def prepare_dev(device, directory, selected_app_id=None, hash_cache=None, worksp
     claimed = claim_foreground(device, app_id) if claim else None
     if claimed is not None:
         print(json.dumps(claimed, ensure_ascii=False), file=sys.stderr, flush=True)
+    fork = describe_fork(manifest, status)
     policy = sync_policy
-    if policy == "ask":
-        print(json.dumps({"happId": happ_id, "appId": app_id, "localVersion": local_version,
-                          "deviceDevVersion": remote_version, "deviceRevision": status.get("revision"),
-                          "question": "选择设备为准(device)、开发端为准(client)，或只下载设备树(download)"}, ensure_ascii=False), file=sys.stderr)
+    if policy == "ask" and fork["forked"]:
+        # Both sides moved since they last agreed, and the package on the phone is not one this
+        # machine published. Only the user can weigh "my unpublished work" against "the version
+        # on the phone", so stop and ask — never pick a side silently, and never pick one from a
+        # version number, which can neither prove agreement nor prove who is newer.
+        print(json.dumps(fork, ensure_ascii=False), file=sys.stderr, flush=True)
         if sys.stdin.isatty():
-            policy = input("Sync policy [client/device/download/continue] (client): ").strip().lower() or "client"
+            answer = input("设备上装了别的包，本地也有未同步的改动。[o]继续用本地 / "
+                           "[d]备份本地后改用设备上的新代码 / [l]只下载设备树: ").strip()[:1].lower()
+            policy = {"o": "continue", "d": "device", "l": "download"}.get(answer, "continue")
         else:
-            if versions_differ:
-                raise RuntimeError("设备开发版与本地版本不同；请让用户选择 --sync-policy client|device|download|continue")
-            policy = "continue"
+            return {"prepared": False, "needsDecision": True, "scope": scope,
+                    "happId": happ_id, "appId": app_id, "status": status, "fork": fork,
+                    "question": "本地开发工作区与设备正式版都已偏离基线，且设备上那份不是本机发布的包。"
+                                "请用户裁决：[continue] 继续用本地代码开发；[device] 备份本地后改用设备上的新代码。",
+                    "decisions": ["continue", "device"]}
+    if policy == "ask":
+        policy = "continue"
     if policy not in {"client", "device", "download", "continue"}:
         raise ValueError("sync policy must be client, device, download or continue")
     if policy == "device":
-        raise RuntimeError("设备为准已确认；请先调用 haminn_download_dev_tree 下载开发树，再重新绑定本地目录")
-    if policy == "download":
+        backup, downloaded = adopt_active_release(device, app_id, root, happ_id, local_version)
+        print(json.dumps({"event": "development-backup", "path": str(backup),
+                          "note": "本地开发目录已备份，设备上的新代码已接管本地目录。"},
+                         ensure_ascii=False), file=sys.stderr, flush=True)
+        status = device.tool("haminn_get_happ_dev_status", {"appId": app_id})
+        result = {"appId": app_id, "revision": status.get("revision"), "treeHash": status.get("treeHash"),
+                  "changedPaths": [], "refreshState": "reset", "download": downloaded}
+    elif policy == "download":
         downloaded = download_dev_tree(device, app_id)
         return {"prepared": True, "scope": scope, "happId": happ_id, "appId": app_id, "status": status, "download": downloaded}
-    if policy == "client":
+    elif policy == "client":
         result = replace_dev_tree(device, app_id, root, status["revision"], force=True)
         if workspace_cache is not None:
             workspace_cache.clear()
@@ -953,6 +967,141 @@ def bump_manifest(manifest_file, manifest, kind):
     return updated
 
 
+MAX_PUBLISHED_HASHES = 1024
+
+
+def happ_dev_path():
+    """Where this machine remembers which directory each happId lives in."""
+    return Path.home() / "haminn" / "happ-dev.json"
+
+
+def load_happ_dev():
+    try:
+        document = json.loads(happ_dev_path().read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def published_hashes(happ_id):
+    """Content hashes this machine has published for one happId, oldest first.
+
+    A package cannot answer "did I put this on the phone": anything inside it is a claim,
+    and a claim can be copied into somebody else's package. This list is written here, by
+    this machine, at the moment of publishing, so it is the only form of that answer worth
+    using. Bounded because it is a search aid, not an archive.
+    """
+    entry = (load_happ_dev().get("happs") or {}).get(happ_id)
+    hashes = entry.get("published") if isinstance(entry, dict) else None
+    if not isinstance(hashes, list):
+        return []
+    return [item for item in hashes if isinstance(item, str)]
+
+
+def remember_published(happ_id, tree_hash):
+    """Append one published content hash without disturbing the file's other facts."""
+    if not happ_id or not tree_hash:
+        return False
+    path = happ_dev_path()
+    document = load_happ_dev()
+    document.setdefault("schema", 1)
+    happs = document.setdefault("happs", {})
+    entry = happs.get(happ_id)
+    if not isinstance(entry, dict):
+        entry = {}
+        happs[happ_id] = entry
+    hashes = [item for item in entry.get("published") or [] if isinstance(item, str)]
+    if tree_hash in hashes:
+        return False
+    hashes.append(tree_hash)
+    entry["published"] = hashes[-MAX_PUBLISHED_HASHES:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name("." + path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as output:
+        output.write(json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, path)
+    return True
+
+
+def describe_fork(manifest, status):
+    """Whether the workspace and the phone's active release have both moved on.
+
+    Content decides, never a version number: the device already reports `dirty` (the working
+    tree moved off its baseline), `baseOutdated` (the active release moved off the same
+    baseline) and `matchesActive` (the two happen to hold identical content). The one fact the
+    device cannot know is added here — whether the package now on the phone is one this machine
+    published — and it comes from our own ledger, never from anything the package says.
+    """
+    active_hash = status.get("activeTreeHash")
+    dirty = bool(status.get("dirty"))
+    base_outdated = bool(status.get("baseOutdated"))
+    matches_active = bool(status.get("matchesActive"))
+    published = isinstance(active_hash, str) and active_hash in published_hashes(manifest.get("happId"))
+    return {
+        "happId": manifest.get("happId"),
+        "forked": bool(dirty and base_outdated and not matches_active and not published),
+        "dirty": dirty,
+        "baseOutdated": base_outdated,
+        "matchesActive": matches_active,
+        "publishedByMe": published,
+        "localVersion": manifest.get("version"),
+        "activeRelease": status.get("activeRelease") if isinstance(status.get("activeRelease"), dict) else {},
+    }
+
+
+SKIPPED_LOCAL_ENTRIES = {".git", ".hg", ".svn", "node_modules", "__pycache__"}
+
+
+def backup_development_dir(directory, happ_id, version):
+    """A plain copy of the local working tree, so "use the phone's version" stays reversible.
+
+    How a host organises its backups is its own business; what matters is that one exists and
+    opens without help. The phone's releases never need backing up — they are content-addressed
+    and never deleted — so the local directory is the only thing actually at risk.
+    """
+    root = Path(directory).resolve(strict=True)
+    name = version.get("name") if isinstance(version, dict) else None
+    destination = (Path.home() / "haminn" / "dev-backups" / happ_id
+                   / (time.strftime("%Y%m%d-%H%M%S") + "-" + str(name or "unversioned") + ".zip"))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root)
+            if path.is_file() and not (SKIPPED_LOCAL_ENTRIES & set(relative.parts)):
+                archive.write(path, relative.as_posix())
+    return destination
+
+
+def adopt_active_release(device, app_id, root, happ_id, version):
+    """Make the phone's active release the new starting point for local development.
+
+    The backup is not a nicety: this clears the working copy, and that copy is the only thing
+    that cannot be rebuilt from the phone. Resetting the device workspace first is what makes
+    the download below the *release* rather than whatever was left in the development tree.
+    """
+    root = Path(root).resolve(strict=True)
+    backup = backup_development_dir(root, happ_id, version)
+    device.tool("haminn_reset_dev_workspace", {"appId": app_id, "requestId": str(uuid.uuid4())})
+    archive_path = backup.with_name(backup.stem + "-device.zip")
+    downloaded = download_dev_tree(device, app_id, output=archive_path)
+    for entry in sorted(root.iterdir()):
+        if entry.name in SKIPPED_LOCAL_ENTRIES:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    with zipfile.ZipFile(archive_path) as zipped:
+        for info in zipped.infolist():
+            name = info.filename
+            if name.startswith("/") or ".." in name.split("/"):
+                raise ValueError("Device tree contains an unsafe path: " + name)
+            zipped.extract(info, root)
+    return backup, downloaded
+
+
 def update_dir(device, directory, selected_app_id=None, bump="none"):
     started = time.monotonic()
     root, manifest_file, manifest, _ = release_manifest(directory)
@@ -970,6 +1119,15 @@ def update_dir(device, directory, selected_app_id=None, bump="none"):
     version = manifest["version"]
     if active and isinstance(active.get("versionCode"), int) and version["code"] <= active["versionCode"]:
         raise RuntimeError("Local version.code must be greater than the active stable version; pass --bump explicitly or update haminn.json")
+    # A version number is a published name, not evidence that this tree descends from what the
+    # phone runs: the patch field moves on every push, so on its own it overtakes other people's
+    # packages and this guard stops guarding anything. Ask the content the same question the
+    # prepare path asks before publishing over the active release.
+    fork = describe_fork(manifest, prepared.get("status") or {})
+    if fork["forked"]:
+        raise RuntimeError("本地开发工作区与设备正式版都已偏离基线，且设备上那份不是本机发布的包；"
+                           "发布前先裁决：先用 --sync-policy continue（采用本地）或 --sync-policy device"
+                           "（备份本地后改用设备上的版本）准备好目录，再发布。")
     revision = prepared["sync"]["revision"]
     built = device.tool("haminn_build_dev_package", {
         "appId": app_id, "expectedDevRevision": revision, "requestId": str(uuid.uuid4()),
@@ -984,12 +1142,18 @@ def update_dir(device, directory, selected_app_id=None, bump="none"):
         raise RuntimeError("Stable installation did not activate the original instance")
     if before.get("dataGenerationId") != after.get("dataGenerationId") or before.get("trustRevision") != after.get("trustRevision"):
         raise RuntimeError("Stable installation unexpectedly changed app data or grants")
+    # Record what this machine just published. A later fork can then tell "the phone holds my
+    # own package" apart from "somebody else put something there" without trusting one byte of
+    # what the package claims about itself.
+    published = next((item.get("treeHash") for item in device.tool("haminn_list_releases", {"appId": app_id}).get("releases", [])
+                      if item.get("releaseId") == installed["releaseId"]), None)
+    remember_published(manifest["happId"], published)
     return {
         "status": "installed", "appId": app_id, "happId": manifest["happId"],
         "version": version, "changedPaths": len(prepared["sync"].get("changedPaths", [])),
         "render": (prepared["render"] or {}).get("state", prepared["sync"].get("refreshState", "unchanged")),
         "launchChannel": "stable", "dataPreserved": True,
-        "releaseId": installed["releaseId"], "timing": {
+        "releaseId": installed["releaseId"], "publishedHash": published, "timing": {
             "preflightMs": preflight_ms,
             "controlMs": round((time.monotonic() - started) * 1000),
         },

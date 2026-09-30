@@ -25,6 +25,8 @@ data class PackageManifest(
     val updateUrl: String?,
     val displayOrientation: String = "unspecified",
     val keyboardMode: String = "resize",
+    /** Who last packaged this happ, as a stable place for it inside the committed manifest. */
+    val maintainer: String? = null,
 )
 
 data class VerifiedPublisher(val keyId: String)
@@ -53,6 +55,23 @@ object PackageManifestReader {
             2 -> readV2(json)
             else -> fail(ErrorCodes.UNSUPPORTED, "不支持的 haminn.json 版本：$schema")
         }
+    }
+
+    /**
+     * What the packager chose to say about this package, for showing to a human — nothing else.
+     *
+     * Optional in every sense: absent, oversized or unparseable all mean "no declaration", never a
+     * failed installation. A declaration is not evidence: the only facts worth acting on are the
+     * ones this device computes itself (the content hash) and the ones it recorded itself (which
+     * hashes it published). It is kept next to the release so a later question can show it.
+     */
+    fun readDeclaredBuild(root: File): String? {
+        val file = File(root, DECLARED_BUILD_FILE)
+        if (!file.isFile) return null
+        if (file.length() > MAX_DECLARED_BYTES) return null
+        val text = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return null
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        return if (json.length() == 0) null else json.toString()
     }
 
     fun verifyPublisher(root: File, treeHash: String): VerifiedPublisher? {
@@ -88,7 +107,7 @@ object PackageManifestReader {
     }
 
     private fun readV2(json: JSONObject): PackageManifest {
-        rejectUnknown(json, setOf("schema", "happId", "name", "author", "version", "entry", "routing", "icon", "liveUrl", "updateUrl", "display"), "haminn.json")
+        rejectUnknown(json, setOf("schema", "happId", "name", "author", "maintainer", "version", "entry", "routing", "icon", "liveUrl", "updateUrl", "display"), "haminn.json")
         val happId = requiredString(json, "happId")
         if (!HAPP_ID.matches(happId) || happId.length > 160) fail(ErrorCodes.INVALID_ARGUMENT, "haminn.json 的 happId 无效")
         if (happId in RESERVED_HAPP_IDS) fail(ErrorCodes.PROTECTED_TARGET, "此 happId 保留给 HaminnUI，不能用于普通 happ")
@@ -102,7 +121,7 @@ object PackageManifestReader {
         return PackageManifest(
             2, happId, name, author, version.first, version.second, entry, routing(json), icon,
             optionalNetworkUrl(json, "liveUrl"), optionalNetworkUrl(json, "updateUrl"),
-            display.first, display.second,
+            display.first, display.second, optionalText(json, "maintainer", 80),
         )
     }
 
@@ -210,4 +229,6 @@ object PackageManifestReader {
     private fun fail(code: String, message: String): Nothing = throw HaminnException(code, message)
     private const val MAX_MANIFEST_BYTES = 64L * 1024
     private const val MAX_SIGNATURE_BYTES = 8L * 1024
+    private const val MAX_DECLARED_BYTES = 16L * 1024
+    private const val DECLARED_BUILD_FILE = "haminn-build.json"
 }

@@ -10,8 +10,8 @@ android {
         applicationId = "life.airen.haminn"
         minSdk = 29
         targetSdk = 37
-        versionCode = providers.gradleProperty("haminnVersionCode").orNull?.toInt() ?: 89
-        versionName = providers.gradleProperty("haminnVersionName").orNull ?: "1.12.7"
+        versionCode = providers.gradleProperty("haminnVersionCode").orNull?.toInt() ?: 91
+        versionName = providers.gradleProperty("haminnVersionName").orNull ?: "1.12.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

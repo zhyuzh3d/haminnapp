@@ -1696,6 +1696,10 @@ class MainActivity : ComponentActivity(), BridgeHost {
                     .put("versionName", release.versionName ?: JSONObject.NULL)
                     .put("sourceRevision", release.sourceRevision ?: JSONObject.NULL)
                     .put("provenance", release.provenance).put("createdAt", release.createdAt)
+                    // A claim by whoever packaged it, handed out so a human can see who made what
+                    // and when. Never a fact: nothing may decide anything from this field.
+                    .put("declaredBuild", release.declaredBuild?.let { runCatching { JSONObject(it) }.getOrNull() }
+                        ?: JSONObject.NULL)
                 }
             ))
         }
