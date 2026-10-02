@@ -27,7 +27,7 @@
       button.setAttribute("aria-checked", String(state.addToFavorites));
     });
   }
-  const URL_HINT = "普通网页会实时运行；ZIP 会下载校验后本地安装；Git 仓库优先读取 haminn-install.json，缺失时再选择仓库中实际存在的发布目录。";
+  const URL_HINT = "请先解析地址；解析完成后可修改应用名称和图标。普通网页会实时运行；ZIP 会校验后本地安装。";
   function formatSize(bytes) {
     let value = Number(bytes) || 0, unit = 0;
     const units = ["B", "KB", "MB"];
@@ -47,26 +47,50 @@
   function showPackageFields(preview) {
     const draft = state.addDraft;
     draft.kind = "package";
+    draft.resolved = true;
     draft.token = preview.token || draft.token;
     $("#urlField").classList.add("hidden");
+    $("#appEditor").classList.remove("hidden");
     $("#versionField").classList.add("hidden");
+    $("#addTitle").textContent = "确认添加应用";
     $("#addSourceLabel").textContent = "已解析安装包";
     $("#manifestStatus").textContent = packageSummary(preview);
-    if (preview.name) $("#name").value = preview.name;
+    $("#name").value = preview.name || draft.suggestedName || "本地应用";
     if (preview.iconDataUrl && !draft.customIcon) showAddIcon(preview.iconDataUrl);
     $("#confirmAddLabel").textContent = "确认安装";
   }
+  function showUrlConfirmation(preview) {
+    const draft = state.addDraft;
+    draft.resolved = true;
+    draft.previewKind = preview.kind;
+    $("#urlField").classList.add("hidden");
+    $("#appEditor").classList.remove("hidden");
+    $("#versionField").classList.add("hidden");
+    $("#addTitle").textContent = "确认添加应用";
+    $("#addSourceLabel").textContent = draft.scanned ? "已解析二维码地址" : "已解析网址";
+    $("#manifestStatus").textContent = preview.kind === "live"
+      ? "普通网页将以线上实时方式添加。"
+      : "地址已解析，确认后继续安装。";
+    $("#name").value = preview.suggestedName || draft.suggestedName || "在线应用";
+    $("#confirmAddLabel").textContent = preview.kind === "live" ? "确认添加" : "继续安装";
+  }
   function openAdd(kind, value = {}) {
-    state.addDraft = { kind, token:value.token || null, customIcon:null, defaultIcon:value.iconUrl || null };
+    const url = value.url || "";
+    let suggestedName = "";
+    try { if (url) suggestedName = new URL(url).hostname; } catch (_) {}
+    state.addDraft = { kind, token:value.token || null, customIcon:null, defaultIcon:value.iconUrl || null,
+      url, scanned:!!value.scanned, suggestedName, resolved:false, insecureConfirmed:false };
     renderFavoriteChoice();
     $("#urlField").classList.remove("hidden");
+    $("#appEditor").classList.add("hidden");
     $("#versionField").classList.add("hidden");
-    $("#url").value = value.url || "";
-    $("#name").value = value.name || (value.url ? new URL(value.url).hostname : "");
+    $("#addTitle").textContent = "解析应用来源";
+    $("#url").value = url;
+    $("#name").value = "";
     $("#addVersion").value = value.version || "1.0.0";
     $("#addSourceLabel").textContent = value.scanned ? "二维码链接" : "在线网址";
     $("#manifestStatus").textContent = URL_HINT;
-    $("#confirmAddLabel").textContent = "解析并确认";
+    $("#confirmAddLabel").textContent = "解析地址";
     resetAddIcon();
     if (value.iconPreview) showAddIcon(value.iconPreview);
     open("#addPanel");
@@ -117,30 +141,40 @@
   bind("#confirmAdd", async () => {
     const draft = state.addDraft;
     if (!draft) throw new Error("添加信息已失效，请重新选择来源。");
-    const name = $("#name").value.trim();
-    if (!name) { $("#name").focus(); throw new Error("应用名称不能为空。"); }
-    const common = { name, version:$("#addVersion").value.trim(), favorite:state.addToFavorites, iconPreviewDataUrl:draft.customIcon || "" };
     if (draft.kind === "package") {
+      const name = $("#name").value.trim();
+      if (!name) { $("#name").focus(); throw new Error("应用名称不能为空。"); }
+      const common = { name, version:$("#addVersion").value.trim(), favorite:state.addToFavorites, iconPreviewDataUrl:draft.customIcon || "" };
       await installed(await host.call("apps.confirmInspect", Object.assign(common, { token:draft.token })), "安装包已校验并安装。");
       return;
     }
+    if (draft.resolved) {
+      const name = $("#name").value.trim();
+      if (!name) { $("#name").focus(); throw new Error("应用名称不能为空。"); }
+      const common = { name, version:$("#addVersion").value.trim(), favorite:state.addToFavorites,
+        iconPreviewDataUrl:draft.customIcon || "", insecureConfirmed:draft.insecureConfirmed };
+      const value = await host.call("apps.installOnline", Object.assign(common, { url:draft.url }));
+      const message = value.installStrategy === "local" ? "来源内容已校验并安装为本地 happ，可创建开发副本。"
+        : "普通网页已添加为实时 happ；没有本地代码，不能进入开发模式。";
+      await installed(value, message);
+      return;
+    }
     const onlineUrl = validUrl("#url");
+    draft.url = onlineUrl;
     if (new URL(onlineUrl).protocol === "http:") {
       const accepted = await confirmAction("允许未加密的 HTTP 页面？", onlineUrl + "\n\n网页内容和凭据可能被同一网络中的其他人读取或篡改。仅在你信任当前网络和服务时继续。", "仍然添加");
       if (!accepted) return;
-      common.insecureConfirmed = true;
+      draft.insecureConfirmed = true;
     }
-    const preview = await host.call("apps.inspectUrl", { url:onlineUrl, insecureConfirmed:!!common.insecureConfirmed });
+    const preview = await host.call("apps.inspectUrl", { url:onlineUrl, insecureConfirmed:draft.insecureConfirmed });
     if (preview.cancelled) { say("已取消添加。"); return; }
     if (preview.kind === "package") {
       showPackageFields(preview);
       say("已解析到 happ 信息，确认后开始安装。");
       return;
     }
-    const value = await host.call("apps.installOnline", Object.assign(common, { url:onlineUrl }));
-    const message = value.installStrategy === "local" ? "来源内容已校验并安装为本地 happ，可创建开发副本。"
-      : "普通网页已添加为实时 happ；没有本地代码，不能进入开发模式。";
-    await installed(value, message);
+    showUrlConfirmation(preview);
+    say("地址已解析，确认页中可以修改应用名称和图标。");
   });
   window.haminnOpenSharedUrl = url => openAdd("online", { url, shared:true });
   H.features.install = { validUrl };

@@ -1,8 +1,8 @@
 {
-  "version": 58,
-  "versionName": "1.12.0",
-  "updatedAt": "2026-09-28T11:49:03+00:00",
-  "sha256": "f120a4665424c537b116a055fd084dc6e6ea7a1f7eec9d3cbaca4aae4d30a0d8",
-  "bytes": 178859,
-  "bundle": "../downloads/haminnshell-v1.12.0-release.zip"
+  "version": 59,
+  "versionName": "1.12.1",
+  "updatedAt": "2026-10-02T04:41:09+00:00",
+  "sha256": "d6ef9fc8278e351b382ad2ca5ff041f2f43984dd07a89ebf73de69574909ab41",
+  "bytes": 179335,
+  "bundle": "../downloads/haminnshell-v1.12.1-release.zip"
 }
