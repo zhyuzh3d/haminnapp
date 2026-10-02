@@ -11,7 +11,7 @@
   }
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
-  const HAMINN_WEB_VERSION = "1.12.5";
+  const HAMINN_WEB_VERSION = "1.12.6";
   const VIEW_STATE_KEY = "haminn.shell.view-state.v1";
   const VIEWS = ["favorites", "development", "settings", "icons", "support"];
   const state = { apps: [], selected: null, deploy: null, iconStyle: "all", iconLimit: 60, settingsTab: "interface", modals: [], view: "favorites", libraryFilter: "favorites", viewEpoch: 0, viewMounted: false, addToFavorites: true, addDraft: null, managedEpoch: 0 };

@@ -470,11 +470,113 @@
     "未登记的宿主操作":"Unregistered host operation",
     "请在 HaminnApp 中使用此功能。":"Use this feature in HaminnApp.",
     "当前 APK 不支持此功能，请更新 HaminnApp。":"The current APK does not support this feature. Update HaminnApp.",
-    "请在 HaminnApp 中复制内容。":"Copy content in HaminnApp."
+    "请在 HaminnApp 中复制内容。":"Copy content in HaminnApp.",
+    "未知":"Unknown",
+    "本地应用":"Local app",
+    "在线应用":"Online app",
+    "未启用":"Disabled",
+    "所选目录":"Selected folder",
+    "备份文件保存到你选择的位置；备份不加密，不包含网站登录状态和系统权限。":"Backup files are saved in the location you choose. Backups are not encrypted and do not include website login state or system permissions.",
+    "自动识别 Haminn、全部应用或单个应用备份":"Automatically detect backups for Haminn, all apps, or one app.",
+    "立即备份":"Back up now",
+    "选择备份 Haminn 设置、全部应用或指定应用":"Choose to back up Haminn settings, all apps, or a specific app.",
+    "自动备份":"Automatic backup",
+    "每天自动备份 Haminn 与全部 happ":"Back up Haminn and all happs daily.",
+    "Haminn 设置":"Haminn settings",
+    "单个 happ":"One happ",
+    "全部 happ":"All happs",
+    "备份内容":"Backup contents",
+    "恢复完成":"Restore complete",
+    "完成":"Done",
+    "全量备份":"Full backup",
+    "每天自动备份 Haminn 设置与全部已安装 happ；数据没有变化时不会重复写入。备份未加密，不包含网站登录状态和系统权限。":"Back up Haminn settings and all installed happs each day. Unchanged data is not written again. Backups are not encrypted and do not include website login state or system permissions.",
+    "启用自动备份":"Enable automatic backups",
+    "正在读取自动备份状态…":"Loading automatic backup status…",
+    "按设定时间自动执行；错过当天时间会补一次":"Run at the scheduled time each day. If the time is missed, one run will be made later that day.",
+    "备份存放目录":"Backup folder",
+    "选择备份目录":"Choose backup folder",
+    "当前目录：":"Current folder:",
+    "尚未选择":"Not selected",
+    "最多保留备份份数":"Number of backups to keep",
+    "每天只写一个备份文件；这里选择保留最近多少天，超出的最旧备份会被自动清理。":"One backup is written per day. Choose how many recent days to keep; older backups are deleted automatically.",
+    "每天的备份时间":"Daily backup time",
+    "启用后会每天在设定时间对 Haminn 与全部 happ 做一次完整备份；未选择目录时不会执行。":"When enabled, Haminn and all happs are backed up at the scheduled time each day. No backup runs until you choose a folder.",
+    "马上执行备份":"Run backup now",
+    "保存设置":"Save settings",
+    "备份目录授权已失效，请重新选择目录后保存。":"Backup folder access has expired. Choose the folder again and save.",
+    "系统未允许精确闹钟，备份时间可能推迟，请在系统设置中允许 Haminn 使用闹钟。":"Exact alarms are not allowed, so backups may run late. Allow Haminn to use alarms in system settings.",
+    "上次成功：":"Last successful run:",
+    "已完成":"Completed",
+    "上次跳过：":"Last skipped:",
+    "数据没有变化":"No data changed",
+    "未知原因":"Unknown reason",
+    "请先选择备份目录":"Choose a backup folder first.",
+    "已有备份任务正在执行":"A backup is already running.",
+    "自动备份未启用":"Automatic backup is disabled.",
+    "数据没有变化，已跳过本次备份":"No data changed; this backup was skipped.",
+    "自动备份失败":"Automatic backup failed.",
+    "备份目录授权已失效，请重新选择目录":"Backup folder access has expired. Choose the folder again.",
+    "系统不允许在后台执行自动备份，将在下次打开 Haminn 时重试":"The system blocked background backup. It will be retried the next time Haminn is opened.",
+    "上次失败：":"Last failed:",
+    "尚未执行过自动备份。":"Automatic backup has not run yet.",
+    "下次运行：":"Next run:",
+    "请设定每天的备份时间。":"Set a daily backup time.",
+    "自动备份已关闭。":"Automatic backup turned off.",
+    "本次未执行备份。":"This backup did not run.",
+    "系统未允许精确闹钟，备份时间可能推迟。":"Exact alarms are not allowed, so backups may run late.",
+    "暂无可备份的 happ。":"There are no happs to back up.",
+    "未命名应用":"Unnamed app",
+    "版本未标注":"Version not specified",
+    "全部备份已导出。":"All backups exported.",
+    "Haminn 设置备份已导出。":"Haminn settings backup exported.",
+    "当前版本不超过5个，无需清理。":"There are no more than 5 versions. Nothing to clean up.",
+    "只保留最近5个版本；当前正在使用的版本始终保留。此操作无法撤销。":"Keep only the 5 most recent versions. The active version is always kept. This cannot be undone.",
+    "清理版本":"Clean up versions",
+    "旧代码版本已清理。":"Old code versions cleaned up.",
+    "自动备份状态读取失败":"Unable to load automatic backup status",
+    "已从原安装来源重新安装，数据已保留。":"Reinstalled from the original source; app data was retained.",
+    "清理旧代码版本":"Clean up old code versions",
+    "只保留最近5个版本":"Keep only the 5 most recent versions",
+    "显示更多版本":"Show more versions",
+    "关闭切换确认":"Close version switch confirmation",
+    "手工备份":"Manual backup",
+    "备份全部":"Back up everything",
+    "Haminn 设置与所有已安装 happ":"Haminn settings and all installed happs",
+    "只备份 Haminn":"Back up Haminn only",
+    "主题、语音等 Haminn 设置":"Haminn settings such as theme and speech",
+    "备份特定应用":"Back up a specific app",
+    "已安装应用":"Installed apps",
+    "关闭备份":"Close backup",
+    "备份恢复完成":"Backup restored",
+    "已恢复内容":"Restored content",
+    "关闭恢复结果":"Close restore result",
+    "关闭保留份数":"Close retention choices",
+    "关闭自动备份":"Close automatic backup",
+    "保留份数":"Retention",
+    "每天只写一个备份文件，一份就是一天；超出的最旧备份会被自动清理。":"One backup is written per day, so one copy represents one day. Older backups are deleted automatically.",
+    "已选择":"Selected"
   });
 
   function pattern(value) {
     let match;
+    if ((match = /^(.+) 份$/.exec(value))) return match[1] + (match[1] === "1" ? " backup" : " backups");
+    if ((match = /^未启用 · 目录：(.+)$/.exec(value))) return "Disabled · Folder: " + match[1];
+    if ((match = /^每天 (.+) · 保留 (\d+) 份(?: · (.+))?$/.exec(value))) return "Daily at " + match[1] + " · Keep " + match[2] + (match[2] === "1" ? " backup" : " backups") + (match[3] ? " · " + match[3] : "");
+    if ((match = /^自动备份已设置为每天 (.+)。$/.exec(value))) return "Automatic backup is scheduled daily at " + match[1] + ".";
+    if ((match = /^已备份到所选目录(?:，并清理 (\d+) 份旧备份。)?$/.exec(value))) return match[1] ? "Backup saved. Removed " + match[1] + (match[1] === "1" ? " old backup." : " old backups.") : "Backup saved to the selected folder.";
+    if ((match = /^已备份到「(.+)」(?:，清理 (\d+) 个旧备份文件)?$/.exec(value))) return "Backed up to “" + match[1] + "”" + (match[2] ? "; removed " + match[2] + (match[2] === "1" ? " old file" : " old files") : "");
+    if ((match = /^电量 (\d+)% 不高于 (\d+)%，稍后会再试$/.exec(value))) return "Battery is at " + match[1] + "% (at or below " + match[2] + "%); backup will be retried later.";
+    if ((match = /^当前电量 (\d+)%，低于 (\d+)% 时不会执行。$/.exec(value))) return "Current battery: " + match[1] + "%. Backup will not run below " + match[2] + "%.";
+    if ((match = /^上次成功：(.+?)(?:（(.+)）)? 下次运行：(.+?)(?: 当前电量 (\d+)%，低于 (\d+)% 时不会执行。)?$/.exec(value))) return "Last successful run: " + match[1] + (match[2] ? " (" + match[2] + ")" : "") + ". Next run: " + match[3] + (match[4] ? ". Current battery: " + match[4] + "%; backup will not run below " + match[5] + "%" : "");
+    if ((match = /^上次跳过：(.+?) 下次运行：(.+?)(?: 当前电量 (\d+)%，低于 (\d+)% 时不会执行。)?$/.exec(value))) return "Last skipped: " + (EN[match[1]] || match[1]) + ". Next run: " + match[2] + (match[3] ? ". Current battery: " + match[3] + "%; backup will not run below " + match[4] + "%" : "");
+    if ((match = /^上次失败：(.+?) 下次运行：(.+?)(?: 当前电量 (\d+)%，低于 (\d+)% 时不会执行。)?$/.exec(value))) return "Last failed: " + (EN[match[1]] || match[1]) + ". Next run: " + match[2] + (match[3] ? ". Current battery: " + match[3] + "%; backup will not run below " + match[4] + "%" : "");
+    if ((match = /^尚未执行过自动备份。 下次运行：(.+?)(?: 当前电量 (\d+)%，低于 (\d+)% 时不会执行。)?$/.exec(value))) return "Automatic backup has not run yet. Next run: " + match[1] + (match[2] ? ". Current battery: " + match[2] + "%; backup will not run below " + match[3] + "%" : "");
+    if ((match = /^全部 happ（(\d+) 个）$/.exec(value))) return "All happs (" + match[1] + ")";
+    if ((match = /^已恢复：“(.+)”$/.exec(value))) return "Restored: “" + match[1] + "”";
+    if ((match = /^显示更多版本（(\d+)）$/.exec(value))) return "Show " + match[1] + " more versions";
+    if ((match = /^将从 (.+) 重新安装，替换当前代码并保留 Haminn 数据。$/.exec(value))) return "Reinstall from " + match[1] + ", replacing the current code while keeping Haminn data.";
+    if ((match = /^已导出“(.+)”备份。$/.exec(value))) return "Backup exported for “" + match[1] + "”.";
+    if ((match = /^备份 (.+)$/.exec(value))) return "Back up " + match[1];
     if ((match = /^已收藏【(\d+)】个HAPP应用$/.exec(value))) return match[1] + " favorite happ" + (match[1] === "1" ? "" : "s");
     if ((match = /^已安装【(\d+)】个HAPP应用$/.exec(value))) return match[1] + " installed happ" + (match[1] === "1" ? "" : "s");
     if ((match = /^版本 (.+)$/.exec(value))) return "Version " + match[1];
@@ -490,8 +592,8 @@
     if ((match = /^(.+) 仓库没有提供 haminn-install\.json。请选择要作为 happ 根目录的现有发布目录；Haminn 会先复制到临时区并校验入口与配置，再提交安装。$/.exec(value))) return "The " + match[1] + " repository does not provide haminn-install.json. Choose an existing release directory to use as the happ root; Haminn copies it to a temporary area and validates the entry and configuration before installation.";
     if ((match = /^(\d+) 个图标 · 已显示 (\d+)$/.exec(value))) return match[1] + " icons · " + match[2] + " shown";
     if ((match = /^复制 (.+) (.+) 图标代码$/.exec(value))) return "Copy " + match[1] + " " + match[2] + " icon code";
-    if ((match = /^当前版本：APK (.+) · UI (.+)$/.exec(value))) return "Current versions: APK " + match[1] + " · UI " + match[2];
-    if ((match = /^官方最新版本：APK (.+) · UI (.+)$/.exec(value))) return "Latest official versions: APK " + match[1] + " · UI " + match[2];
+    if ((match = /^当前版本：APK (.+) · UI (.+)$/.exec(value))) return "Current versions: APK " + (EN[match[1]] || match[1]) + " · UI " + (EN[match[2]] || match[2]);
+    if ((match = /^官方最新版本：APK (.+) · UI (.+)$/.exec(value))) return "Latest official versions: APK " + (EN[match[1]] || match[1]) + " · UI " + (EN[match[2]] || match[2]);
     if ((match = /^本地界面已更新到 (.+)。$/.exec(value))) return "Local interface updated to " + match[1] + ".";
     if ((match = /^Haminn APK (.+) 已下载，正在打开 Android 安装界面。请确认安装。$/.exec(value))) return "Haminn APK " + match[1] + " is downloaded. Confirm installation in Android.";
     if ((match = /^Haminn APK (.+) 已下载。请允许 Haminn 安装应用，返回后会继续。$/.exec(value))) return "Haminn APK " + match[1] + " is downloaded. Allow Haminn to install apps; installation will continue when you return.";

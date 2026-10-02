@@ -132,11 +132,11 @@
     if (!value.enabled) return "启用后会每天在设定时间对 Haminn 与全部 happ 做一次完整备份；未选择目录时不会执行。";
     if (!value.exactAlarmAvailable) return "系统未允许精确闹钟，备份时间可能推迟，请在系统设置中允许 Haminn 使用闹钟。";
     const parts = [];
-    if (value.lastStatus === "success") parts.push("上次成功：" + (value.lastRunAt ? new Date(value.lastRunAt).toLocaleString() : "已完成") + (value.lastBytes ? "（" + formatBytes(value.lastBytes) + "）" : ""));
+    if (value.lastStatus === "success") parts.push("上次成功：" + (value.lastRunAt ? new Date(value.lastRunAt).toLocaleString(H.i18n.current()) : "已完成") + (value.lastBytes ? "（" + formatBytes(value.lastBytes) + "）" : ""));
     else if (value.lastStatus === "skipped") parts.push("上次跳过：" + (value.lastMessage || "数据没有变化"));
     else if (value.lastStatus === "failed") parts.push("上次失败：" + (value.lastMessage || "未知原因"));
     else parts.push("尚未执行过自动备份。");
-    parts.push("下次运行：" + new Date(value.nextRunAt).toLocaleString());
+    parts.push("下次运行：" + new Date(value.nextRunAt).toLocaleString(H.i18n.current()));
     if (value.batteryPercent !== null && value.batteryPercent <= value.minBatteryPercent) parts.push("当前电量 " + value.batteryPercent + "%，低于 " + value.minBatteryPercent + "% 时不会执行。");
     return parts.join(" ");
   }

@@ -55,7 +55,7 @@
     $("#addTitle").textContent = "确认添加应用";
     $("#addSourceLabel").textContent = "已解析安装包";
     $("#manifestStatus").textContent = packageSummary(preview);
-    $("#name").value = preview.name || draft.suggestedName || "本地应用";
+    $("#name").value = preview.name || draft.suggestedName || H.i18n.t("本地应用");
     if (preview.iconDataUrl && !draft.customIcon) showAddIcon(preview.iconDataUrl);
     $("#confirmAddLabel").textContent = "确认安装";
   }
@@ -71,7 +71,7 @@
     $("#manifestStatus").textContent = preview.kind === "live"
       ? "普通网页将以线上实时方式添加。"
       : "地址已解析，确认后继续安装。";
-    $("#name").value = preview.suggestedName || draft.suggestedName || "在线应用";
+    $("#name").value = preview.suggestedName || draft.suggestedName || H.i18n.t("在线应用");
     $("#confirmAddLabel").textContent = preview.kind === "live" ? "确认添加" : "继续安装";
   }
   function openAdd(kind, value = {}) {
