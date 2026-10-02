@@ -19,6 +19,16 @@ Haminn 的目标不是又一个浏览器,而是一个**应用容器**：每个 h
 
 打开 Haminn 看到的是 **HaminnUI** —— 宿主默认加载,并拥有宿主管理权限的官方 happ。安装,运行,权限,数据,备份和智能体开发入口都在这里,用户不需要额外安装任何界面。
 
+## 功能演示
+
+<p align="center">
+  <a href="https://www.youtube.com/shorts/3bhYtZXbQgs">
+    <img src="docs/images/haminn-feature-tour-cover.png" alt="Watch the Haminn feature tour on YouTube" width="260">
+  </a>
+</p>
+
+[在 YouTube 上观看 Haminn 功能演示](https://www.youtube.com/shorts/3bhYtZXbQgs)
+
 ## 特性亮点
 
 - **一个宿主,多个页面应用**：应用库支持本地目录 / ZIP,HTTP(S) 页面或安装包,局域网地址和公开 Git 仓库来源,提供收藏,搜索,扫码预填,桌面快捷方式,重装,更新,代码回退,备份恢复和卸载保留数据。
