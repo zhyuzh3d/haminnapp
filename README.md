@@ -22,12 +22,12 @@ Haminn 的目标不是又一个浏览器,而是一个**应用容器**：每个 h
 ## 功能演示
 
 <p align="center">
-  <a href="https://www.youtube.com/shorts/3bhYtZXbQgs">
+  <a href="https://www.youtube.com/watch?v=RkRiN4SVqiA">
     <img src="docs/images/haminn-feature-tour-cover.png" alt="Watch the Haminn feature tour on YouTube" width="260">
   </a>
 </p>
 
-[在 YouTube 上观看 Haminn 功能演示](https://www.youtube.com/shorts/3bhYtZXbQgs)
+[在 YouTube 上观看 Haminn 功能演示](https://www.youtube.com/watch?v=RkRiN4SVqiA)
 
 ## 特性亮点
 
