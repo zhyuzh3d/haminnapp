@@ -10,8 +10,8 @@ android {
         applicationId = "life.airen.haminn"
         minSdk = 29
         targetSdk = 37
-        versionCode = providers.gradleProperty("haminnVersionCode").orNull?.toInt() ?: 95
-        versionName = providers.gradleProperty("haminnVersionName").orNull ?: "1.12.13"
+        versionCode = providers.gradleProperty("haminnVersionCode").orNull?.toInt() ?: 96
+        versionName = providers.gradleProperty("haminnVersionName").orNull ?: "1.12.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -71,6 +71,10 @@ android {
             "META-INF/NOTICE.md"
         )
     }
+}
+
+providers.gradleProperty("haminnOivAssetsDir").orNull?.takeIf { it.isNotBlank() }?.let {
+    android.sourceSets.getByName("main").assets.directories.add(it)
 }
 
 dependencyLocking {

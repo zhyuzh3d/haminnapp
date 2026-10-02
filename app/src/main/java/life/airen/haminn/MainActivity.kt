@@ -41,6 +41,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -90,6 +91,7 @@ import life.airen.haminn.install.IconProcessor
 import life.airen.haminn.install.PackageDescription
 import life.airen.haminn.install.PackageManifest
 import life.airen.haminn.install.PackageManifestReader
+import life.airen.haminn.install.OfficialIntegratedAppsInstaller
 import life.airen.haminn.install.RepositoryDirectory
 import life.airen.haminn.install.RepositorySource
 import life.airen.haminn.model.ErrorCodes
@@ -111,6 +113,7 @@ import life.airen.haminn.notification.NotificationSpec
 import life.airen.haminn.notification.Recurrence
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -134,6 +137,10 @@ import okhttp3.Request
 
 class MainActivity : ComponentActivity(), BridgeHost {
     private val haminnApp get() = application as HaminnApplication
+    private var oivSetupComplete = false
+    private var oivSetupRunning = false
+    private var pendingOivIntent: Intent? = null
+    private var oivProgressDialog: AlertDialog? = null
     private val records get() = haminnApp.records
     private val files get() = haminnApp.files
     private val shortcuts by lazy { ShortcutHost(this) }
@@ -383,7 +390,7 @@ class MainActivity : ComponentActivity(), BridgeHost {
                 else finish()
             }
         })
-        handleIntent(intent)
+        beginOivSetup(intent)
     }
 
     private fun registerGlobalHandlers() {
@@ -417,7 +424,83 @@ class MainActivity : ComponentActivity(), BridgeHost {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        if (oivSetupComplete) handleIntent(intent) else pendingOivIntent = intent
+    }
+
+    private fun beginOivSetup(intent: Intent) {
+        pendingOivIntent = intent
+        if (oivSetupComplete) {
+            pendingOivIntent = null
+            handleIntent(intent)
+            return
+        }
+        val integratedInstaller = OfficialIntegratedAppsInstaller(this, haminnApp.registry, haminnApp.installer)
+        if (!integratedInstaller.hasBundle()) {
+            oivSetupComplete = true
+            pendingOivIntent = null
+            handleIntent(intent)
+            return
+        }
+        if (oivSetupRunning) return
+        oivSetupRunning = true
+        showOivProgress()
+        lifecycleScope.launch {
+            try {
+                integratedInstaller.installMissingApps()
+                oivSetupComplete = true
+                oivSetupRunning = false
+                oivProgressDialog?.dismiss()
+                oivProgressDialog = null
+                val nextIntent = pendingOivIntent ?: intent
+                pendingOivIntent = null
+                handleIntent(nextIntent)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                oivSetupRunning = false
+                oivProgressDialog?.dismiss()
+                oivProgressDialog = null
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("官方集成应用未能全部安装")
+                    .setMessage("${error.message ?: "安装遇到问题。"}\n\n可以重试，或先继续使用 Haminn。")
+                    .setPositiveButton("重试") { _, _ -> beginOivSetup(pendingOivIntent ?: intent) }
+                    .setNegativeButton("继续使用") { _, _ ->
+                        oivSetupComplete = true
+                        val nextIntent = pendingOivIntent ?: intent
+                        pendingOivIntent = null
+                        handleIntent(nextIntent)
+                    }
+                    .setOnCancelListener {
+                        oivSetupComplete = true
+                        val nextIntent = pendingOivIntent ?: intent
+                        pendingOivIntent = null
+                        handleIntent(nextIntent)
+                    }
+                    .show()
+            }
+        }
+    }
+
+    private fun showOivProgress() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+        }
+        val spinnerSize = (44 * resources.displayMetrics.density).toInt()
+        content.addView(ProgressBar(this), LinearLayout.LayoutParams(spinnerSize, spinnerSize))
+        content.addView(TextView(this).apply {
+            text = "正在安装预装应用，请稍候。"
+            textSize = 15f
+            setPadding((16 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        oivProgressDialog = AlertDialog.Builder(this)
+            .setTitle("准备官方集成应用")
+            .setView(content)
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
     }
 
     private fun handleIntent(intent: Intent) {

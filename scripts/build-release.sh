@@ -17,4 +17,9 @@ VERSION_CODE=${HAMINN_VERSION_CODE:-$(sed -n 's/.*versionCode.*?: \([0-9][0-9]*\
 test -n "$VERSION_NAME" || { echo "Cannot determine versionName" >&2; exit 1; }
 test -n "$VERSION_CODE" || { echo "Cannot determine versionCode" >&2; exit 1; }
 cd "$ROOT"
-"$ROOT/gradlew" :app:assembleRelease -PhaminnVersionName="$VERSION_NAME" -PhaminnVersionCode="$VERSION_CODE"
+if [ -n "${HAMINN_OIV_ASSET_DIR:-}" ]; then
+  test -f "$HAMINN_OIV_ASSET_DIR/oiv/catalog.json" || { echo "Missing OIV catalog: $HAMINN_OIV_ASSET_DIR/oiv/catalog.json" >&2; exit 1; }
+  "$ROOT/gradlew" :app:assembleRelease -PhaminnVersionName="$VERSION_NAME" -PhaminnVersionCode="$VERSION_CODE" -PhaminnOivAssetsDir="$HAMINN_OIV_ASSET_DIR"
+else
+  "$ROOT/gradlew" :app:assembleRelease -PhaminnVersionName="$VERSION_NAME" -PhaminnVersionCode="$VERSION_CODE"
+fi

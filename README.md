@@ -5,11 +5,11 @@
 > 官网：<https://haminn.airen.life/> · [下载 Android 安装包](https://haminn.airen.life/pages/download.html) · [使用指南](https://haminn.airen.life/pages/guide.html) · [应用广场](https://haminn.airen.life/pages/happs.html) · [GitHub Releases](https://github.com/zhyuzh3d/haminnapp/releases) · [MIT License](./LICENSE)
 
 - 包名：`life.airen.haminn`
-- 当前源码版本：`1.12.13`(versionCode `95`),由 `app/build.gradle.kts` 决定
+- 当前源码版本：`1.12.14`(versionCode `96`),由 `app/build.gradle.kts` 决定
 - 运行要求：Android 10 及以上(minSdk 29),无需 Google Play 服务
 - 形态：Kotlin + Gradle(Android 宿主 APK),页面侧为原生 HTML / CSS / JavaScript
 
-> 版本号以 `app/build.gradle.kts` 的 `versionName` / `versionCode` 为准,正式构建时由 `scripts/build-release.sh` 通过 `-PhaminnVersionName` / `-PhaminnVersionCode` 注入。官网下载页与 [Releases](https://github.com/zhyuzh3d/haminnapp/releases) 始终提供最新正式版 APK,产物命名为 `haminn-v<version>-release.apk`。
+> 版本号以 `app/build.gradle.kts` 的 `versionName` / `versionCode` 为准,正式构建时由 `scripts/build-release.sh` 通过 `-PhaminnVersionName` / `-PhaminnVersionCode` 注入。标准 APK 命名为 `haminn-v<version>-release.apk`；官网另提供同版本号的官方集成版 OIV，命名为 `haminn-v<version>-oiv-release.apk`。GitHub Releases 只发布标准 APK。OIV 选择清单在 `tools/oiv-happs.json`；正式构建时从 HaminnWeb 当前已发布的 `haminn-install.json` 和 ZIP 生成集成包，happ 单独发布不会改动已发布 OIV。
 
 ---
 
