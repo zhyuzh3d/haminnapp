@@ -309,6 +309,14 @@ class MainActivity : ComponentActivity(), BridgeHost {
             continuation.resumeWith(Result.failure(HaminnException(ErrorCodes.INVALID_ARGUMENT, "二维码中没有可添加的网页链接或 happ 分享")))
         }
     }
+    private val officialInstallSourceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val apk = haminnApp.officialShell.pendingApkUpdateFile()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.canRequestPackageInstalls() && apk != null) {
+            launchOfficialApkInstaller(apk)
+        } else {
+            Toast.makeText(this, "未允许 Haminn 安装应用；已下载的安装包仍保留在本机。", Toast.LENGTH_LONG).show()
+        }
+    }
     private val exactAlarmLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         pendingExactAlarm?.let { continuation ->
             pendingExactAlarm = null
@@ -1957,7 +1965,9 @@ class MainActivity : ComponentActivity(), BridgeHost {
             haminnApp.developmentServer.stop("开发凭据已重置")
             haminnApp.agentServer.resetPassword(params.optString("password").takeIf { it.isNotBlank() })
         }
-        "host.shell.status" -> haminnApp.officialShell.status(storeRunningMode)
+        "host.shell.status" -> if (params.optBoolean("includeOfficialVersions")) {
+            haminnApp.officialShell.statusWithOfficialVersions(storeRunningMode)
+        } else haminnApp.officialShell.status(storeRunningMode)
         "host.shell.setMode" -> {
             val requested = params.getString("mode")
             val selected = if (requested == OfficialShellManager.Mode.ONLINE.value) {
@@ -1971,8 +1981,22 @@ class MainActivity : ComponentActivity(), BridgeHost {
             root.postDelayed({ showTarget(null, false) }, 100)
         }
         "host.shell.updateLocal" -> {
-            val result = haminnApp.officialShell.updateLocal().put("runningMode", storeRunningMode)
-            if (haminnApp.officialShell.mode() == OfficialShellManager.Mode.LOCAL) root.postDelayed({ showTarget(null, false) }, 100)
+            val outcome = haminnApp.officialShell.updateLocal()
+            val result = outcome.status.put("runningMode", storeRunningMode)
+            outcome.apkFile?.let { apk ->
+                val permissionRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()
+                result.put("action", if (permissionRequired) "apk-update-permission" else "apk-update")
+                root.postDelayed({
+                    if (permissionRequired) requestOfficialInstallSourcePermission() else launchOfficialApkInstaller(apk)
+                }, 250)
+            }
+            if (result.optString("action") == "shell-updated" && haminnApp.officialShell.mode() == OfficialShellManager.Mode.LOCAL) {
+                val successMessage = "HaminnUI 已更新到 ${result.optString("localVersion")}，安装成功。"
+                root.postDelayed({
+                    showTarget(null, false)
+                    root.postDelayed({ Toast.makeText(this, successMessage, Toast.LENGTH_LONG).show() }, 350)
+                }, 100)
+            }
             result
         }
         "host.support.check" -> JSONObject().put("available", supportReachable())
@@ -3601,8 +3625,39 @@ class MainActivity : ComponentActivity(), BridgeHost {
         super.onStop()
     }
 
+    private fun requestOfficialInstallSourcePermission() {
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+        runCatching { officialInstallSourceLauncher.launch(intent) }
+            .onFailure { Toast.makeText(this, "无法打开安装来源设置；已下载的 Haminn 安装包仍保留在本机。", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun launchOfficialApkInstaller(apk: File) {
+        if (!apk.isFile) {
+            Toast.makeText(this, "Haminn 安装包不存在，请重新检查更新。", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            requestOfficialInstallSourcePermission()
+            return
+        }
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", apk)
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            }
+            startActivity(installIntent)
+        }.onFailure {
+            Toast.makeText(this, "无法打开 Android 安装界面；已下载的 Haminn 安装包仍保留在本机。", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        if (haminnApp.officialShell.consumeInstalledApkUpdate()) {
+            Toast.makeText(this, "Haminn 更新已安装成功。", Toast.LENGTH_LONG).show()
+        }
         registerGlobalHandlers()
         val currentId = visibleAppId
         val currentApp = currentId?.let(haminnApp.registry::getInstance)

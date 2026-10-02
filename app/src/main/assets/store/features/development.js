@@ -74,7 +74,7 @@
       return;
     }
     const address = agentState && (agentState.addresses || [])[0];
-    if (!address) throw new Error("当前没有可用的开发服务地址，可使用下方“仅 USB 启动”。");
+    if (!address) throw new Error("当前没有可用的开发服务地址。请打开 Wi-Fi 并连接到局域网后重试，或使用下方“仅 USB 启动”。");
     if (!await confirmAction("开启智能体开发模式？", "持有密码的电脑可修改普通 happ 的开发副本。请仅在可信局域网使用。", "开启开发模式")) return;
     renderAgent(await host.call("agent.start", { address, mode:"lan" }));
     say("开发模式已开启，请仅向可信智能体分享连接信息。");

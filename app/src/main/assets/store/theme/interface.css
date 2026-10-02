@@ -302,7 +302,8 @@ code { font-family:ui-monospace,monospace; }
 .voice-offline-row { margin-top:18px; }
 .voice-actions { gap:10px; }
 .voice-actions button { justify-content:center; }
-.shell-version-text { width:100%; min-height:40px; padding:5px 0 12px; justify-content:flex-start; border:0; background:transparent; color:var(--muted); font-size:13px; font-weight:500; }
+.shell-version-text { width:100%; min-height:0; padding:4px 0 2px; justify-content:flex-start; border:0; background:transparent; color:var(--muted); font-size:13px; font-weight:500; text-align:left; white-space:normal; }
+#officialVersions { margin:2px 0 0; }
 .settings-card.quiet { background:transparent; }
 .quiet > i { font-size:21px; margin-bottom:16px; }
 .quiet p { font-size:12px; color:var(--muted); margin:0; }
@@ -455,7 +456,7 @@ a { color:var(--primary); text-underline-offset:3px; }
 .manage-sheet-scroll .source-details .detail-block { border:0; padding-top:0; }
 .manage-sheet-scroll .switch-row strong { font-size:14px; }
 .settings-card .hint,.info-card p,.empty p { font-size:13px; }
-.shell-version-text { margin:0; }
+.shell-version-text { margin:10px 0 0; }
 .bottom-nav .nav-icon { width:46px; }
 @media(min-width:1000px) {
   #shell { padding-left:210px; }
@@ -497,7 +498,7 @@ a { color:var(--primary); text-underline-offset:3px; }
 #developmentView,#settingsView { max-width:760px; margin:0 auto; }
 #settingsView { display:block; }
 .developer-card,.settings-card { margin:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
-.settings-card + .settings-card { margin-top:38px; }
+#settingsView .settings-card + .settings-card { margin-top:19px; }
 .settings-card h2 { margin-bottom:16px; font-size:16px; }
 #developmentView .developer-card { max-width:none; }
 .agent-warning { padding:0; border:0; border-radius:0; background:transparent; }

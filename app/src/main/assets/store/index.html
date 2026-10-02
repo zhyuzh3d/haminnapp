@@ -22,7 +22,7 @@
 </section>
 <section id="developmentView" class="view hidden" aria-label="开发服务">
 <div class="developer-card"><div class="switch-row"><div><strong>智能体开发模式</strong><small id="agentStatus" role="status">正在读取状态…</small></div><button id="agentToggle" class="switch" role="switch" aria-checked="false" aria-label="开启智能体开发模式"><span></span></button></div>
-<p class="hint">请把下面的插件地址粘贴给你的智能体开发软件（如WorkBuddy、Codex等），并要求它从这个地址安装插件。安装完毕后，就可以要求它进入特定Happ应用开发模式进行修改和安装更新。</p>
+<p class="hint">请在连接同一局域网的电脑上，将下面的插件地址粘贴给智能体开发软件（如 WorkBuddy、Codex），并让它安装插件。安装完成后，就可以让它进入指定 Happ 的开发模式，修改应用并安装更新。</p>
 <div class="agent-address-row"><div><span class="field-label">Happ开发插件安装地址</span><output id="agentUrl" class="agent-url">未连接 Wi-Fi</output></div><div class="agent-address-actions"><button id="refreshAgentAddress" aria-label="刷新插件安装地址"><i class="fa-solid fa-rotate accent-green" aria-hidden="true"></i>刷新</button><button id="copyAgentAddress" aria-label="复制插件安装地址"><i class="fa-solid fa-copy accent-blue" aria-hidden="true"></i>复制</button></div></div>
 <div class="agent-address-row"><div><span class="field-label">备用安装地址（USB连接）</span><output id="agentUsb" class="agent-url">adb forward tcp:8766 tcp:8766</output></div><button id="copyAgentUsb" aria-label="复制 USB 命令"><i class="fa-solid fa-copy accent-violet" aria-hidden="true"></i>复制</button></div>
 <button id="startAgentUsb" class="wide"><i class="fa-solid fa-usb accent-violet" aria-hidden="true"></i>仅 USB 启动</button>
@@ -35,7 +35,7 @@
 <div id="settingsPaneInterface" class="settings-pane" role="tabpanel" aria-labelledby="settingsTabInterface" data-settings-pane="interface">
 <div class="settings-card"><h2>外观</h2><div id="themeChoices" class="segmented" aria-label="主题"><button data-theme-choice="system">跟随系统</button><button data-theme-choice="light">浅色</button><button data-theme-choice="dark">深色</button></div></div>
 <div class="settings-card"><h2>界面语言</h2><div id="languageChoices" class="segmented" aria-label="界面语言"><button data-language-choice="system">跟随系统</button><button data-language-choice="zh-CN">中文</button><button data-language-choice="en">English</button></div><p class="hint">自动选择系统语言；中文系统使用中文，其他系统使用英文。</p></div>
-<div class="settings-card"><h2>界面</h2><button id="shellVersionSwitch" class="shell-version-text" aria-label="当前 HaminnUI 版本，连续点击三次使用实时在线界面">当前界面版本：1.10.13</button><button id="useLocalShell" class="wide hidden"><i class="fa-solid fa-mobile-screen-button accent-blue"></i>恢复使用本地界面</button><button id="updateLocalShell" class="primary wide"><i class="fa-solid fa-download"></i>更新本地版本</button></div>
+<div class="settings-card"><h2 id="shellUpdateTitle">更新</h2><button id="useLocalShell" class="wide hidden"><i class="fa-solid fa-mobile-screen-button accent-blue"></i>恢复使用本地界面</button><button id="shellVersionSwitch" class="shell-version-text" aria-label="当前 APK 与 UI 版本，连续点击三次使用实时在线界面">当前版本：APK 未知 · UI 未知</button><p id="officialVersions" class="hint" role="status" aria-live="polite">官方最新版本：未知</p><button id="updateLocalShell" class="primary wide"><i class="fa-solid fa-download"></i>检查并更新本地版本</button></div>
 </div>
 <div id="settingsPaneTts" class="settings-pane hidden" role="tabpanel" aria-labelledby="settingsTabTts" data-settings-pane="tts">
 <div class="settings-card"><div class="voice-section-head"><strong>文字朗读（TTS）</strong><span id="ttsCapabilityStatus" class="voice-status">正在检测…</span></div><p class="hint">由 Haminn 统一适配设备内置朗读服务，happ 无需区分引擎厂商。</p>

@@ -308,15 +308,29 @@
   });
 
   let shellState = null;
+  let currentApkVersion = "未知";
+  function renderCurrentVersions() {
+    if (!shellState) return;
+    const currentUiVersion = shellState.runningMode === "online" ? H.version : shellState.localVersion;
+    const online = shellState.runningMode === "online";
+    $("#shellUpdateTitle").textContent = online ? "更新（实时在线）" : "更新";
+    $("#shellVersionSwitch").textContent = "当前版本：APK " + currentApkVersion + " · UI " + (currentUiVersion || "未知");
+  }
+  function renderOfficialVersions(value) {
+    const label = $("#officialVersions");
+    label.textContent = value.officialVersionsAvailable
+      ? "官方最新版本：APK " + value.officialApkVersion + " · UI " + value.officialUiVersion
+      : "官方最新版本：未知";
+  }
   function renderShellState(value) {
     shellState = value;
     const online = value.configuredMode === "online";
-    const currentVersion = value.runningMode === "online" ? H.version : value.localVersion;
     $("#brandDot").classList.toggle("online", online);
-    $("#shellVersionSwitch").textContent = "当前界面版本：" + currentVersion + (online ? " · 实时在线" : " · 本地");
+    renderCurrentVersions();
+    if (Object.prototype.hasOwnProperty.call(value, "officialVersionsAvailable")) renderOfficialVersions(value);
     $("#useLocalShell").classList.toggle("hidden", !online);
   }
-  async function loadShellStatus() { renderShellState(await host.call("shell.status", {})); }
+  async function loadShellStatus() { renderShellState(await host.call("shell.status", { includeOfficialVersions:true })); }
   let shellVersionTaps = 0, shellVersionTapTimer;
   $("#shellVersionSwitch").onclick = event => {
     clearTimeout(shellVersionTapTimer);
@@ -336,7 +350,15 @@
   bind("#updateLocalShell", async () => {
     const value = await host.call("shell.updateLocal", {});
     renderShellState(value);
-    say("本地界面已更新到 " + value.localVersion + "。");
+    if (value.action === "apk-update") {
+      say("Haminn APK " + value.latestHaminnVersion + " 已下载，正在打开 Android 安装界面。请确认安装。");
+    } else if (value.action === "apk-update-permission") {
+      say("Haminn APK " + value.latestHaminnVersion + " 已下载。请允许 Haminn 安装应用，返回后会继续。");
+    } else if (value.action === "shell-updated") {
+      if (value.configuredMode === "online") say("HaminnUI 已更新到 " + value.localVersion + "，安装成功。");
+    } else {
+      say("Haminn 和 HaminnUI 已是最新版本。");
+    }
   });
   window.haminnShellUnavailable = message => {
     say(message || "界面更新暂时不可用，继续使用当前本地界面。", true);
@@ -344,6 +366,8 @@
 
   async function loadAbout() {
     const value = await host.call("about.info", {});
+    currentApkVersion = value.version || "未知";
+    renderCurrentVersions();
     $("#aboutVersion").textContent = value.version + "（" + value.versionCode + "）";
     $("#topApkVersion").textContent = value.version;
     $("#aboutAuthor").textContent = value.author;

@@ -5,7 +5,7 @@
 > 官网：<https://haminn.airen.life/> · [下载 Android 安装包](https://haminn.airen.life/pages/download.html) · [使用指南](https://haminn.airen.life/pages/guide.html) · [应用广场](https://haminn.airen.life/pages/happs.html) · [GitHub Releases](https://github.com/zhyuzh3d/haminnapp/releases) · [MIT License](./LICENSE)
 
 - 包名：`life.airen.haminn`
-- 当前源码版本：`1.12.10`(versionCode `92`),由 `app/build.gradle.kts` 决定
+- 当前源码版本：`1.12.13`(versionCode `95`),由 `app/build.gradle.kts` 决定
 - 运行要求：Android 10 及以上(minSdk 29),无需 Google Play 服务
 - 形态：Kotlin + Gradle(Android 宿主 APK),页面侧为原生 HTML / CSS / JavaScript
 

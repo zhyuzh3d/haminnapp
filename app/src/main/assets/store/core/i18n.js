@@ -37,7 +37,7 @@
     "正在读取状态…":"Loading status…",
     "开启智能体开发模式":"Enable agent development mode",
     "关闭智能体开发模式":"Disable agent development mode",
-    "请把下面的插件地址粘贴给你的智能体开发软件（如WorkBuddy、Codex等），并要求它从这个地址安装插件。安装完毕后，就可以要求它进入特定Happ应用开发模式进行修改和安装更新。":"Paste the plugin address below into your agent development software, such as WorkBuddy or Codex, and ask it to install the plugin from this address. When the installation is done, you can ask it to enter development mode for a specific happ to make changes and install updates.",
+    "请在连接同一局域网的电脑上，将下面的插件地址粘贴给智能体开发软件（如 WorkBuddy、Codex），并让它安装插件。安装完成后，就可以让它进入指定 Happ 的开发模式，修改应用并安装更新。":"On a computer connected to the same local network, paste the plugin address below into agent development software such as WorkBuddy or Codex and ask it to install the plugin. Then ask it to enter development mode for a specific happ to make changes and install updates.",
     "Happ开发插件安装地址":"Happ development plugin install address",
     "刷新插件安装地址":"Refresh plugin install address",
     "刷新":"Refresh",
@@ -61,6 +61,8 @@
     "设置":"Settings",
     "设置分类":"Settings categories",
     "界面":"Interface",
+    "更新":"Update",
+    "更新（实时在线）":"Update (live online)",
     "朗读":"Text to speech",
     "语音":"Speech",
     "系统":"System",
@@ -72,9 +74,11 @@
     "界面语言":"Interface language",
     "自动选择系统语言；中文系统使用中文，其他系统使用英文。":"Automatically uses Chinese on a Chinese system and English on any other system.",
     "中文":"中文",
-    "当前 HaminnUI 版本，连续点击三次使用实时在线界面":"Current HaminnUI version; tap three times to use the live online interface",
+    "当前 APK 与 UI 版本，连续点击三次使用实时在线界面":"Current APK and UI versions; tap three times to use the live online interface",
+    "官方最新版本：未知":"Latest official versions: unknown",
     "恢复使用本地界面":"Use local interface",
     "更新本地版本":"Update local version",
+    "检查并更新本地版本":"Check for updates",
     "文字朗读（TTS）":"Text to speech (TTS)",
     "正在检测…":"Checking…",
     "由 Haminn 统一适配设备内置朗读服务，happ 无需区分引擎厂商。":"Haminn adapts the device's installed speech engines so happs do not need vendor-specific logic.",
@@ -279,7 +283,7 @@
     "未开启":"Disabled",
     "未连接 Wi-Fi":"Not connected to Wi-Fi",
     "开发模式已关闭。":"Development mode disabled.",
-    "当前没有可用的开发服务地址，可使用下方“仅 USB 启动”。":"No development service address is available. Use “Start with USB only” below.",
+    "当前没有可用的开发服务地址。请打开 Wi-Fi 并连接到局域网后重试，或使用下方“仅 USB 启动”。":"No development service address is available. Turn on Wi-Fi and connect to a local network, then try again, or use “Start with USB only” below.",
     "开启智能体开发模式？":"Enable agent development mode?",
     "持有密码的电脑可修改普通 happ 的开发副本。请仅在可信局域网使用。":"A computer with the password can modify development workspaces for regular happs. Use only on a trusted local network.",
     "开启开发模式":"Enable development mode",
@@ -486,8 +490,13 @@
     if ((match = /^(.+) 仓库没有提供 haminn-install\.json。请选择要作为 happ 根目录的现有发布目录；Haminn 会先复制到临时区并校验入口与配置，再提交安装。$/.exec(value))) return "The " + match[1] + " repository does not provide haminn-install.json. Choose an existing release directory to use as the happ root; Haminn copies it to a temporary area and validates the entry and configuration before installation.";
     if ((match = /^(\d+) 个图标 · 已显示 (\d+)$/.exec(value))) return match[1] + " icons · " + match[2] + " shown";
     if ((match = /^复制 (.+) (.+) 图标代码$/.exec(value))) return "Copy " + match[1] + " " + match[2] + " icon code";
-    if ((match = /^当前界面版本：(.+)$/.exec(value))) return "Current interface version: " + match[1];
+    if ((match = /^当前版本：APK (.+) · UI (.+)$/.exec(value))) return "Current versions: APK " + match[1] + " · UI " + match[2];
+    if ((match = /^官方最新版本：APK (.+) · UI (.+)$/.exec(value))) return "Latest official versions: APK " + match[1] + " · UI " + match[2];
     if ((match = /^本地界面已更新到 (.+)。$/.exec(value))) return "Local interface updated to " + match[1] + ".";
+    if ((match = /^Haminn APK (.+) 已下载，正在打开 Android 安装界面。请确认安装。$/.exec(value))) return "Haminn APK " + match[1] + " is downloaded. Confirm installation in Android.";
+    if ((match = /^Haminn APK (.+) 已下载。请允许 Haminn 安装应用，返回后会继续。$/.exec(value))) return "Haminn APK " + match[1] + " is downloaded. Allow Haminn to install apps; installation will continue when you return.";
+    if ((match = /^HaminnUI 已更新到 (.+)，安装成功。$/.exec(value))) return "HaminnUI updated to " + match[1] + ". Installation succeeded.";
+    if (value === "Haminn 和 HaminnUI 已是最新版本。") return "Haminn and HaminnUI are up to date.";
     if ((match = /^(.+)已复制。$/.exec(value))) return (EN[match[1]] || match[1]) + " copied.";
     if ((match = /^已保存(.+)；其余修改未完成。(.*)$/.exec(value))) return "Saved " + match[1] + "; the remaining changes were not completed. " + match[2];
     if ((match = /^未登记的宿主操作：(.+)$/.exec(value))) return "Unregistered host operation: " + match[1];
