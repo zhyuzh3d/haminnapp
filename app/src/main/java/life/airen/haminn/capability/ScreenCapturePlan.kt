@@ -64,18 +64,13 @@ object ScreenCapturePlan {
     const val MAX_MAX_DURATION_MS = 1_800_000L
 
     /**
-     * [maxBytes] is the cap of **one delivered file**, not of a whole session. A recording
-     * dies at the file store's single-object limit, so the ceiling tracks that limit minus
-     * the room the combined container and the audio track need.
-     *
-     * The default stays at 48 MiB on purpose: a single 256 MiB file costs the whole
-     * per-application file budget (`FileStore.MAX_APP_FILE_BYTES`), so a caller that wants a
-     * long recording should keep the default segment size and ask for `segment` instead of
-     * pushing this number up.
+     * [maxBytes] is a caller-selected cap for one delivered recording file. The file store
+     * has no byte quota; this upper bound is the largest value represented by its Long API.
+     * The default remains a practical segment size for ordinary captures.
      */
     const val DEFAULT_MAX_BYTES = 48L * 1024 * 1024
     const val MIN_MAX_BYTES = 8L * 1024 * 1024
-    const val MAX_MAX_BYTES = 256L * 1024 * 1024
+    const val MAX_MAX_BYTES = Long.MAX_VALUE
 
     const val DEFAULT_FRAME_RATE = 30
     const val MIN_FRAME_RATE = 15

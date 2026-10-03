@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import life.airen.haminn.capability.ScreenCapturePlan
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -110,7 +111,7 @@ class ScreenCaptureInstrumentedTest {
 
                 // The advertised limits are the ones the host actually enforces.
                 assertEquals(1_800_000L, availability.getLong("maxDurationMs"))
-                assertEquals(256L * 1024 * 1024, availability.getLong("maxBytes"))
+                assertEquals(ScreenCapturePlan.MAX_MAX_BYTES, availability.getLong("maxBytes"))
                 assertEquals(60, availability.getInt("maxFrameRate"))
                 assertEquals(2048, availability.getInt("stillMaxEdge"))
                 assertEquals(listOf(1.0, 0.75, 0.5), availability.getJSONArray("scales").doubles())

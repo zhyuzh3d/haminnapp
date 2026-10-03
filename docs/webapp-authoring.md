@@ -207,7 +207,7 @@ await haminn.notifications.schedule({
 
 业务数据建议用 `haminn.data` / `haminn.files`，代码更新不会清除这些数据。Haminn 的文件采用本地对象存储：内容落在宿主文件系统，数据库和接口只保留 `logicalFileId`、`url`、摘要等元数据；`haminn.files.pickImage()` 使用 Android 照片选择器并返回持久化的 `HaminnFile`（可直接使用其 `url`），不会返回或持久化 Base64。`haminn.files.import({ accept: "video/*" })` 可将用户选择的大文件保存为逻辑文件，视频缩略图也作为独立文件对象返回。只有明确调用 `haminn.files.pickInline()` 选择不超过调用方上限的小文件时，才会返回临时 data URL；它适合提交给 ASR 等必须内联的协议，不应写入 `haminn.data`。`haminn.files.readText()` 默认只内联 256 KiB，处理模型返回的较大 JSON 时可显式传 `maxBytes`，宿主最高限制为 8 MiB。页面使用相机、定位等能力仍须经过逐应用授权与相应 Android 系统授权。图标资源不涉及敏感权限。
 
-宿主接受单条消息的硬上限是 256 KiB，超过该值只回 `E_QUOTA` 而不执行任何动作。所以页面自己生成的、可能超过 256 KiB 的字节不能再塞进一次调用：改用 `haminn.files.beginWrite({ name, mime })` 取得 `writeId` 和 `maxChunkBytes`，用 `haminn.files.appendBytes({ writeId, chunkBase64 })` 逐块提交不超过 64 KiB 的 Base64（每次返回累计 `receivedBytes` 便于显示进度），最后 `haminn.files.finishWrite({ writeId })` 原子提交并得到 `HaminnFile`；中途放弃就调用 `haminn.files.abortWrite({ writeId })`。写入句柄只属于创建它的页面会话，切页后不能续写，长时间无进展的句柄会被宿主回收。分块写入只负责把字节落到文件库，随后的传输仍由 `network.request` 的 `bodyLogicalFileId` 或 `multipart` 完成，单文件上限 64 MiB、单应用总量 256 MiB。
+宿主接受单条消息的硬上限是 256 KiB，超过该值只回 `E_QUOTA` 而不执行任何动作。所以页面自己生成的、可能超过 256 KiB 的字节不能再塞进一次调用：改用 `haminn.files.beginWrite({ name, mime })` 取得 `writeId` 和 `maxChunkBytes`，用 `haminn.files.appendBytes({ writeId, chunkBase64 })` 逐块提交不超过 64 KiB 的 Base64（每次返回累计 `receivedBytes` 便于显示进度），最后 `haminn.files.finishWrite({ writeId })` 原子提交并得到 `HaminnFile`；中途放弃就调用 `haminn.files.abortWrite({ writeId })`。写入句柄只属于创建它的页面会话，切页后不能续写，长时间无进展的句柄会被宿主回收。分块写入只负责把字节落到文件库，文件对象和应用总量没有字节配额；实际可用空间由设备内部存储决定。随后的 `network.request` `bodyLogicalFileId` 或 `multipart` 传输仍受该接口自身的请求与响应上限约束。
 
 ```js
 const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
@@ -257,7 +257,7 @@ if (screen.supported) {
 |---|---|---|
 | `audio` | `both` | `none` / `system` / `microphone` / `both`。设备给不出的来源返回 `E_UNSUPPORTED`,不静默降级;实际交付了哪条音轨以结果里的 `audio` 为准 |
 | `maxDurationMs` | 180000 | 整场录制的时长上限,1 秒至 30 分钟 |
-| `maxBytes` | 48 MiB | **单个交付文件**的大小上限,8 MiB 至 256 MiB,不是整场录制的总量 |
+| `maxBytes` | 48 MiB | **单个交付文件**的大小上限，至少 8 MiB，最大为 Long API 可表示的值，不是整场录制的总量 |
 | `segment` | `false` | 打开后到达 `maxBytes` 就滚动到下一个文件继续录,而不是结束录制 |
 | `scale` | 0.5 | 只能取 `1.0` / `0.75` / `0.5`。请求的尺寸被编码器拒绝时按 0.75 递降再回落到固定尺寸,永不上采样 |
 | `frameRate` | 30 | 15 至 60。**这是目标不是硬上限**:成品是可变帧率（VFR）流,帧只在画面变化时写入,所以静态屏幕的平均帧率会远低于它。时间轴由音轨这条连续时钟锚定,静止期播放器一直停在上一帧,不丢时间。要省字节应降 `scale` 或 `videoBitRate` |
@@ -267,16 +267,16 @@ if (screen.supported) {
 
 `frameRate` 的实测形态（同一台设备两次录制,同为 30 的目标与 0.5 的缩放）:持续滑动那次 321 帧 / 10.726 s（29.93 fps）,基本静止那次 56 帧 / 6.375 s（8.78 fps）;视频帧间隔从 10.7 ms 一直跨到 1016.7 ms,而音轨两侧都是严格的 21.33 ms 一帧（AAC 1024 采样 / 48 kHz）,一个空档也没有。所以「画面不动」省掉的是新的画面帧,不是时间。需要恒定帧率的成品时,由 happ 在再加工时显式指定帧率。
 
-需要超过单个文件大小的录制时用**分段录制**。文件库的单文件硬顶是 256 MiB,而一个应用的逻辑文件总量同样只有 256 MiB,所以一个 256 MiB 的文件会占满该应用的全部分额。`segment: true` 让长录制以「每段都不超过 `maxBytes`」的方式继续:
+需要超过单个文件大小的录制时用**分段录制**。文件库没有单文件或应用总量字节配额；`maxBytes` 是本次录制指定的单段大小，实际落盘仍受设备可用空间影响。`segment: true` 让长录制以「每段都不超过 `maxBytes`」的方式继续:
 
 - 切段是 `MediaRecorder` **自己滚动输出文件**,不重启编码器,所以段与段之间不丢帧、不中断。切点由字节触发而非时钟触发,段长约等于 `maxBytes` ÷ 实际码率。
 - 音频不随段重启:整场只有一条连续音频流,每段在合流时取自己时间窗内的采样,段边界不会出现声音空洞。
 - 每一段都是文件库里独立的 `HaminnFile`,每段落定触发一次 `screen.recording.segment`（含 `recordingId`,`index`,`durationMs` 与文件字段）。
 - `stopRecording()` 的返回值仍指向**最后一段**,并额外带 `segments` 数组列出本场全部段;`screen.recording.ended` 也带同一份数组,页面中途重载不会丢掉前面几段。
-- 某段落不进文件库时（例如应用配额已满）该段 `logicalFileId` 为 `null` 并带 `message`,整场以 `reason: "bytes"` 收尾 —— 继续录只会产出谁也留不下的段。
+- 某段落盘失败时（例如设备可用空间不足）该段 `logicalFileId` 为 `null` 并带 `message`,整场以 `reason: "bytes"` 收尾 —— 继续录只会产出无法保存的段。
 - 峰值磁盘开销约为单段的 2.2 倍（视频中间件 + 成品）。
 
-有四条平台事实需要在页面设计时就考虑。系统声音只覆盖媒体,游戏和未知三类播放用途,被采集应用可以显式拒绝,通话,闹钟,通知和 DRM 内容永远采不到,`availability().systemAudioUsages` 如实回报这个范围。`availability().systemAudio` 报告的是平台合同（API 29 起播放采集 API 始终存在）而非逐设备探测结果 —— Android 没有公开的探测接口,设备实际交付了哪条音轨要以录制结果里的 `audio` 字段为准。文件库单文件 256 MiB 是硬顶且超限导入会整段作废,所以 `maxBytes` 被钳在 256 MiB 以内（`availability().maxBytes` 报告的就是它）;默认 48 MiB 与 2 Mbps 下单次约三分钟,更长就打开 `segment`,`availability().segmenting` 报告本机是否支持。一次用户同意只允许一个投屏画面,因此录制进行中不能再截屏（返回 `E_CONFLICT`）,截屏与录屏各自都需要一次新的同意。
+有四条平台事实需要在页面设计时就考虑。系统声音只覆盖媒体,游戏和未知三类播放用途,被采集应用可以显式拒绝,通话,闹钟,通知和 DRM 内容永远采不到,`availability().systemAudioUsages` 如实回报这个范围。`availability().systemAudio` 报告的是平台合同（API 29 起播放采集 API 始终存在）而非逐设备探测结果 —— Android 没有公开的探测接口,设备实际交付了哪条音轨要以录制结果里的 `audio` 字段为准。文件库没有单文件或应用总量字节配额；录屏 `maxBytes` 是本次录制的单段大小上限，其可设范围由 `availability().maxBytes` 报告;默认 48 MiB 与 2 Mbps 下单次约三分钟,更长就打开 `segment`,`availability().segmenting` 报告本机是否支持。一次用户同意只允许一个投屏画面,因此录制进行中不能再截屏（返回 `E_CONFLICT`）,截屏与录屏各自都需要一次新的同意。
 
 录屏要采麦克风而 `audio.startRecording()` 正在进行时返回 `E_CONFLICT`,页面应先停止录音再开录屏。页面重新加载后仍可调用不带参数的 `screen.stopRecording()` 结束当前录制,不必保存 `recordingId`。
 

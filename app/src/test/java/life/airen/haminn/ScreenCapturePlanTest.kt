@@ -73,15 +73,12 @@ class ScreenCapturePlanTest {
         assertEquals(ScreenCapturePlan.MIN_VIDEO_BIT_RATE, low.videoBitRate)
         assertEquals(ScreenCapturePlan.MIN_AUDIO_BIT_RATE, low.audioBitRate)
 
-        val high = recording(maxDurationMs = 99_999_999, maxBytes = 99_999_999_999, frameRate = 999, videoBitRate = 99_999_999, audioBitRate = 999_999)
+        val high = recording(maxDurationMs = 99_999_999, maxBytes = Long.MAX_VALUE, frameRate = 999, videoBitRate = 99_999_999, audioBitRate = 999_999)
         assertEquals(ScreenCapturePlan.MAX_MAX_DURATION_MS, high.maxDurationMs)
         assertEquals(ScreenCapturePlan.MAX_FRAME_RATE, high.frameRate)
-        // The ceiling is the file store's single-object limit: an import past it is discarded
-        // whole, so a recording that a caller keeps in one piece may reach exactly that much and
-        // no more. The audio track still has to fit inside the same budget.
-        assertEquals(256L * 1024 * 1024, high.maxBytes)
+        // The file store has no byte quota; the recording API accepts its full Long range.
         assertEquals(ScreenCapturePlan.MAX_MAX_BYTES, high.maxBytes)
-        assertEquals(248_551_348L, ScreenCapturePlan.videoByteBudget(high.maxBytes))
+        assertEquals((high.maxBytes / ScreenCapturePlan.BYTE_BUDGET_DENOMINATOR).toLong(), ScreenCapturePlan.videoByteBudget(high.maxBytes))
         assertTrue(ScreenCapturePlan.videoByteBudget(high.maxBytes) < high.maxBytes)
         assertEquals(ScreenCapturePlan.MAX_VIDEO_BIT_RATE, high.videoBitRate)
         assertEquals(ScreenCapturePlan.MAX_AUDIO_BIT_RATE, high.audioBitRate)

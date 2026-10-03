@@ -30,7 +30,6 @@ class FileStore(private val context: Context) {
         val temporary: File,
         val stream: FileOutputStream,
         val digest: MessageDigest,
-        val appBytesAtStart: Long,
         var bytes: Long = 0L,
         var lastAccessAt: Long = System.currentTimeMillis(),
     )
@@ -51,7 +50,7 @@ class FileStore(private val context: Context) {
         if (target.exists() || metadata(appId, generation, logicalId) != null) {
             throw HaminnException(ErrorCodes.CONFLICT, "文件 ID 已存在")
         }
-        val (currentBytes, currentFiles) = usage(appId, generation)
+        val currentFiles = usage(appId, generation)
         if (currentFiles >= MAX_APP_FILES) throw HaminnException(ErrorCodes.QUOTA, "应用文件数量已达上限")
         val digest = MessageDigest.getInstance("SHA-256")
         var size = 0L
@@ -62,8 +61,6 @@ class FileStore(private val context: Context) {
                     val read = input.read(buffer)
                     if (read < 0) break
                     size += read
-                    if (size > MAX_FILE_BYTES) throw HaminnException(ErrorCodes.QUOTA, "单个文件超过 $FILE_LIMIT_MIB MiB")
-                    if (currentBytes + size > MAX_APP_FILE_BYTES) throw HaminnException(ErrorCodes.QUOTA, "应用文件总量超过 256 MiB")
                     digest.update(buffer, 0, read)
                     output.write(buffer, 0, read)
                 }
@@ -94,7 +91,7 @@ class FileStore(private val context: Context) {
         if (File(root, logicalId).exists() || metadata(appId, generation, logicalId) != null) {
             throw HaminnException(ErrorCodes.CONFLICT, "文件 ID 已存在")
         }
-        val (currentBytes, currentFiles) = usage(appId, generation)
+        val currentFiles = usage(appId, generation)
         if (currentFiles >= MAX_APP_FILES) throw HaminnException(ErrorCodes.QUOTA, "应用文件数量已达上限")
         val writeId = UUID.randomUUID().toString()
         val temporary = File(root, ".writing-$logicalId")
@@ -102,7 +99,7 @@ class FileStore(private val context: Context) {
             owner = owner, appId = appId, generation = generation, logicalId = logicalId,
             name = sanitizeName(name), mime = normalizeMime(mime),
             temporary = temporary, stream = FileOutputStream(temporary),
-            digest = MessageDigest.getInstance("SHA-256"), appBytesAtStart = currentBytes,
+            digest = MessageDigest.getInstance("SHA-256"),
             lastAccessAt = System.currentTimeMillis(),
         )
         return JSONObject().put("writeId", writeId).put("maxChunkBytes", MAX_CHUNK_BYTES)
@@ -115,8 +112,6 @@ class FileStore(private val context: Context) {
             .getOrElse { throw HaminnException(ErrorCodes.INVALID_ARGUMENT, "chunkBase64 无效") }
         if (chunk.size > MAX_CHUNK_BYTES) throw HaminnException(ErrorCodes.QUOTA, "单个数据块超过 64 KiB")
         val total = handle.bytes + chunk.size
-        if (total > MAX_FILE_BYTES) throw HaminnException(ErrorCodes.QUOTA, "单个文件超过 $FILE_LIMIT_MIB MiB")
-        if (handle.appBytesAtStart + total > MAX_APP_FILE_BYTES) throw HaminnException(ErrorCodes.QUOTA, "应用文件总量超过 256 MiB")
         if (chunk.isNotEmpty()) {
             handle.stream.write(chunk)
             handle.digest.update(chunk)
@@ -137,15 +132,11 @@ class FileStore(private val context: Context) {
         }
         // The handle stays registered until the commit, because the sweep inside
         // usage() must not mistake this still-open temporary file for garbage.
-        val (currentBytes, currentFiles) = usage(appId, generation)
+        val currentFiles = usage(appId, generation)
         writes.remove(writeId)
         if (currentFiles >= MAX_APP_FILES) {
             handle.temporary.delete()
             throw HaminnException(ErrorCodes.QUOTA, "应用文件数量已达上限")
-        }
-        if (currentBytes + handle.bytes > MAX_APP_FILE_BYTES) {
-            handle.temporary.delete()
-            throw HaminnException(ErrorCodes.QUOTA, "应用文件总量超过 256 MiB")
         }
         return commit(appId, generation, handle.logicalId, handle.temporary, handle.name, handle.mime, handle.bytes, handle.digest.digest().hex())
     }
@@ -305,7 +296,7 @@ class FileStore(private val context: Context) {
             }
         }
 
-    private fun usage(appId: String, generation: String): Pair<Long, Long> = openIndex(appId, generation).use { db ->
+    private fun usage(appId: String, generation: String): Long = openIndex(appId, generation).use { db ->
         root(appId, generation).listFiles { file -> file.name.startsWith(".deleted-") }?.forEach { it.delete() }
         // A temporary file is protected by its own modification time, not by the
         // in-memory handle table: an idle-but-live write keeps touching its file,
@@ -313,9 +304,9 @@ class FileStore(private val context: Context) {
         val cutoff = System.currentTimeMillis() - WRITE_IDLE_TTL_MS
         root(appId, generation).listFiles { file -> file.name.startsWith(".writing-") && file.lastModified() < cutoff }
             ?.forEach { it.delete() }
-        db.rawQuery("SELECT COALESCE(SUM(size), 0), COUNT(*) FROM files", null).use { cursor ->
+        db.rawQuery("SELECT COUNT(*) FROM files", null).use { cursor ->
             cursor.moveToFirst()
-            cursor.getLong(0) to cursor.getLong(1)
+            cursor.getLong(0)
         }
     }
 
@@ -381,15 +372,7 @@ class FileStore(private val context: Context) {
 
     companion object {
         private val ID = Regex("[0-9a-fA-F-]{36}")
-        /**
-         * A single logical file may be as large as the whole per-application budget: a screen
-         * recording that the caller asked to keep in one piece is exactly the size of the
-         * capture, and it is the caller's job to segment it if it wants room for anything
-         * else. The message names the limit instead of repeating the number.
-         */
-        private const val MAX_FILE_BYTES = 256L * 1024 * 1024
-        private const val MAX_APP_FILE_BYTES = 256L * 1024 * 1024
-        private val FILE_LIMIT_MIB = MAX_FILE_BYTES / (1024 * 1024)
+        /** The store has a count limit only; byte capacity is bounded by the device filesystem. */
         private const val MAX_APP_FILES = 10_000L
         private const val MAX_INLINE_BYTES = 256 * 1024
         private const val MAX_EXTENDED_INLINE_BYTES = 8 * 1024 * 1024
