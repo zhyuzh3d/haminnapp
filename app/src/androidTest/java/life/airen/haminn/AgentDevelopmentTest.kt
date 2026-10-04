@@ -189,21 +189,25 @@ class AgentDevelopmentTest {
         assertEquals(200, bootstrapResponse.first)
         val bootstrap = JSONObject(bootstrapResponse.second)
         assertEquals("haminn-agent-bootstrap", bootstrap.getString("kind"))
-        assertEquals("codex-plugin-archive-v1", bootstrap.getString("packageFormat"))
+        assertEquals(4, bootstrap.getInt("schema"))
+        assertEquals("haminn-agent-bundle-v1", bootstrap.getString("packageFormat"))
         assertFalse(bootstrap.has("nativeCodexPlugin"))
         assertFalse(bootstrap.has("codexIntegration"))
         assertFalse(bootstrap.has("connection"))
         assertTrue(bootstrap.getJSONObject("plugin").getString("codexVersion").startsWith(bootstrap.getJSONObject("plugin").getString("version") + "+codex."))
         assertEquals("install_or_update", bootstrap.getJSONObject("install").getString("action"))
-        assertEquals("codex-plugin-archive-v1", bootstrap.getJSONObject("install").getString("packageFormat"))
-        assertEquals("~/plugins/haminn-dev-plugin", bootstrap.getJSONObject("install").getString("target"))
+        assertFalse(bootstrap.getJSONObject("install").getBoolean("requiresUserConfirmation"))
+        assertEquals("haminn-agent-bundle-v1", bootstrap.getJSONObject("install").getString("packageFormat"))
+        assertEquals("~/.codex/plugins/haminn-dev-plugin", bootstrap.getJSONObject("install").getString("target"))
+        assertEquals("~/.workbuddy/skills/haminn-dev-plugin", bootstrap.getJSONObject("install").getJSONObject("targets").getJSONObject("workbuddy").getString("target"))
         assertEquals("atomic_replace_if_hash_differs", bootstrap.getJSONObject("install").getString("strategy"))
         assertEquals("no_op", bootstrap.getJSONObject("install").getString("existingSameVersion"))
         assertEquals("authenticate", bootstrap.getJSONObject("install").getString("afterInstall"))
         // The connector is gone: nothing registers or advertises an MCP server.
         assertFalse(bootstrap.getJSONObject("install").has("mcpRegistration"))
         assertEquals("/", bootstrap.getJSONObject("clientContract").getJSONObject("firstRequest").getString("path"))
-        assertEquals(2, bootstrap.getJSONObject("clientContract").getJSONArray("successStates").length())
+        assertTrue(bootstrap.getJSONObject("clientContract").getBoolean("installBeforeDeviceTools"))
+        assertEquals(3, bootstrap.getJSONObject("clientContract").getJSONArray("successStates").length())
         assertEquals("ask_user_for_current_address", bootstrap.getJSONObject("recovery").getJSONObject("addressUnavailable").getString("nextAction"))
         assertEquals("ask_user_for_current_password", bootstrap.getJSONObject("recovery").getJSONObject("passwordInvalid").getString("nextAction"))
         assertFalse(bootstrap.toString().contains(password))
@@ -218,17 +222,21 @@ class AgentDevelopmentTest {
         assertEquals(bootstrap.getJSONObject("install").getString("packageSha256"), digest)
         val entries = mutableListOf<String>()
         var codexManifest: JSONObject? = null
+        var workbuddyManifest: JSONObject? = null
         ZipInputStream(ByteArrayInputStream(packageBytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 entries += entry.name
                 if (entry.name == ".codex-plugin/plugin.json") codexManifest = JSONObject(String(zip.readBytes()))
+                if (entry.name == ".workbuddy-plugin/plugin.json") workbuddyManifest = JSONObject(String(zip.readBytes()))
             }
         }
         assertTrue(entries.contains(".codex-plugin/plugin.json"))
+        assertTrue(entries.contains(".workbuddy-plugin/plugin.json"))
         assertFalse(entries.contains(".mcp.json"))
         assertTrue(entries.contains("skills/haminn-dev-plugin/SKILL.md"))
         assertEquals(bootstrap.getJSONObject("plugin").getString("codexVersion"), codexManifest!!.getString("version"))
+        assertEquals(bootstrap.getJSONObject("plugin").getString("version"), workbuddyManifest!!.getString("version"))
         assertFalse(codexManifest!!.has("mcpServers"))
     }
 

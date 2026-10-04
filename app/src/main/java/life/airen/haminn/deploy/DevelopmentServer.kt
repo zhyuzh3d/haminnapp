@@ -239,15 +239,19 @@ private class DeployHttpServer(
     }
 }
 
-internal class BoundedAsyncRunner(coreThreads: Int = 1) : NanoHTTPD.AsyncRunner {
+internal class BoundedAsyncRunner(
+    coreThreads: Int = 1,
+    maxThreads: Int = 4,
+    queueCapacity: Int = 8,
+) : NanoHTTPD.AsyncRunner {
     private val sequence = AtomicInteger()
     private val running = ConcurrentHashMap.newKeySet<NanoHTTPD.ClientHandler>()
     private val executor = ThreadPoolExecutor(
         coreThreads,
-        4,
+        maxThreads,
         30,
         TimeUnit.SECONDS,
-        ArrayBlockingQueue(8),
+        ArrayBlockingQueue(queueCapacity),
         { task -> Thread(task, "haminn-deploy-${sequence.incrementAndGet()}").apply { isDaemon = true } },
     )
 

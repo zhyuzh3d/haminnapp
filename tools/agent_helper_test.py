@@ -47,8 +47,9 @@ class AgentHelperTest(unittest.TestCase):
     def test_bootstrap_plugin_install_and_digest_validation(self):
         package_buffer = io.BytesIO()
         with zipfile.ZipFile(package_buffer, "w") as archive:
-            archive.writestr("manifest.json", json.dumps({"kind": "haminn-agent-plugin", "id": "haminn-device", "version": "9.0.0", "codexVersion": "9.0.0+codex.test", "packageFormat": "codex-plugin-archive-v1"}))
+            archive.writestr("manifest.json", json.dumps({"kind": "haminn-agent-plugin", "id": "haminn-device", "version": "9.0.0", "codexVersion": "9.0.0+codex.test", "packageFormat": "haminn-agent-bundle-v1"}))
             archive.writestr(".codex-plugin/plugin.json", json.dumps({"name": "haminn-device", "version": "9.0.0+codex.test"}))
+            archive.writestr(".workbuddy-plugin/plugin.json", json.dumps({"name": "haminn-device", "version": "9.0.0"}))
             archive.writestr("SKILL.md", "bootstrap skill")
             archive.writestr("haminn-agent.py", "print('helper')")
         package = package_buffer.getvalue()
@@ -77,20 +78,24 @@ class AgentHelperTest(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         try:
             with tempfile.TemporaryDirectory() as temp:
-                client = helper.Device("http://127.0.0.1:" + str(server.server_port), config_root=temp)
-                target = Path(temp) / "plugin"
-                result = helper.install_plugin(client, target)
-                self.assertEqual("installed", result["action"])
-                self.assertEqual("bootstrap skill", (target / "SKILL.md").read_text())
-                self.assertEqual("haminn-device", json.loads((target / "manifest.json").read_text())["id"])
-                result = helper.install_plugin(client, target)
-                self.assertEqual("unchanged", result["action"])
-                roots = BootstrapHandler.root_requests
-                result = helper.install_plugin(client, target, force=True,
-                                               package_url="http://127.0.0.1:%d/plugin/haminn-device" % server.server_port,
-                                               package_sha256=digest, plugin_version="9.0.0")
-                self.assertEqual("updated", result["action"])
-                self.assertEqual(roots, BootstrapHandler.root_requests)
+                with patch.object(Path, "home", return_value=Path(temp)):
+                    client = helper.Device("http://127.0.0.1:" + str(server.server_port), config_root=temp)
+                    target = Path(temp) / "plugin"
+                    result = helper.install_plugin(client, target)
+                    self.assertEqual("installed", result["action"])
+                    self.assertEqual("bootstrap skill", (target / "SKILL.md").read_text())
+                    self.assertEqual("haminn-device", json.loads((target / "manifest.json").read_text())["id"])
+                    marketplace = json.loads((Path(temp) / ".agents/plugins/marketplace.json").read_text())
+                    self.assertEqual("INSTALLED_BY_DEFAULT", marketplace["plugins"][0]["policy"]["installation"])
+                    self.assertEqual("./plugin", marketplace["plugins"][0]["source"]["path"])
+                    result = helper.install_plugin(client, target)
+                    self.assertEqual("unchanged", result["action"])
+                    roots = BootstrapHandler.root_requests
+                    result = helper.install_plugin(client, target, force=True,
+                                                   package_url="http://127.0.0.1:%d/plugin/haminn-device" % server.server_port,
+                                                   package_sha256=digest, plugin_version="9.0.0")
+                    self.assertEqual("updated", result["action"])
+                    self.assertEqual(roots, BootstrapHandler.root_requests)
         finally:
             server.shutdown(); server.server_close(); thread.join()
 
@@ -107,15 +112,15 @@ class AgentHelperTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.request_target("https://127.0.0.1:8766/plugin/haminn-device")
 
-    def test_plugin_identity_survives_the_connector_removal(self):
+    def test_shared_host_bundle_registers_codex_and_workbuddy_entry_points(self):
         self.assertEqual("haminn-dev-plugin", helper.PLUGIN_ID)
         self.assertIn("haminn-device", helper.PLUGIN_IDS)
-        # The install path no longer offers a connector: no stdio adapter, no
-        # marketplace entry, no MCP configuration anywhere in the helper.
-        for removed in ("stdio", "ensure_codex_marketplace"):
-            self.assertFalse(hasattr(helper, removed), removed)
+        self.assertTrue(hasattr(helper, "ensure_codex_marketplace"))
+        self.assertEqual(".codex", helper.plugin_target("codex").parts[-3])
+        self.assertEqual(".workbuddy", helper.plugin_target("workbuddy").parts[-3])
         source = Path(helper.__file__).read_text(encoding="utf-8")
-        for absent in ("mcpServers", ".mcp.json", "client-config", "marketplace.json"):
+        self.assertIn("INSTALLED_BY_DEFAULT", source)
+        for absent in ("mcpServers", ".mcp.json", "client-config"):
             self.assertNotIn(absent, source)
 
     def test_password_is_reused_across_addresses_on_one_lan(self):

@@ -154,7 +154,7 @@ document.body.append(haminn.icons.create('heart', { style: 'regular', label: '�
 
 Haminn 提供全应用“智能体开发模式”：在 HaminnUI 的开发 Tab 开启，向可信智能体提供手机显示的局域网 HTTP 基址和六位数字密码；没有 Wi-Fi 时可仅启动 USB 服务并执行 `adb forward tcp:8766 tcp:8766`。局域网和 USB 使用同一套接口、同一个密码和同一份开发数据。所有电脑共用密码，不配对、不绑定电脑或客户端；修改密码后旧密码立即失效。密码只用于 Haminn 已开放的开发管理接口，不替代系统和逐应用能力授权。局域网 HTTP 未加密，只适用于可信网络，不应公网暴露。
 
-访问无需密码的根地址获取 Bootstrap；智能体先以 `Accept: application/json` 请求一次 `/`，按 `install.packageSha256` 安装或更新 `haminn-dev-plugin` 包，再用 `install.authenticateCommand` 私下录入一次密码。`/.well-known/haminn-agent` 是同一清单的缓存别名，`/skills/haminn-dev-plugin/SKILL.md` 是随 APK 更新的动态指南，`/mcp` 是设备自身的 JSON-RPC 传输层（助手内部使用，不需要注册任何连接器）。未带认证访问受保护接口时，服务以结构化 401 返回发现地址、说明地址和 `Authorization: Bearer <password>` 模板，智能体据此向用户索取当前密码；密码不得放入 URL 路径、查询参数、fragment、页面、Skill、日志或仓库。
+访问无需密码的根地址获取 Bootstrap；智能体必须先以 `Accept: application/json` 请求 `/`，再按当前宿主立即安装或更新 `haminn-dev-plugin` 并核对 `install.packageSha256`，完成宿主注册/刷新后才调用设备工具。Codex 安装到 `~/.codex/plugins/haminn-dev-plugin` 并幂等更新 `~/.agents/plugins/marketplace.json`；WorkBuddy 将同一 Skill 和 helper 安装到 `~/.workbuddy/skills/haminn-dev-plugin`。两边共用指引和 helper，只保留各自所需的入口元数据；不应把文件只放在通用 `~/plugins` 目录。随后使用宿主对应的认证命令私下录入一次密码。`/.well-known/haminn-agent` 是同一清单的缓存别名，`/skills/haminn-dev-plugin/SKILL.md` 是随 APK 更新的动态指南，`/mcp` 是设备自身的 JSON-RPC 传输层（插件通过 helper 使用，不需要单独注册连接器）。未带认证访问受保护接口时，服务以结构化 401 返回发现地址、说明地址和 `Authorization: Bearer <password>` 模板，智能体据此向用户索取当前密码；密码不得放入 URL 路径、查询参数、fragment、页面、Skill、日志或仓库。
 
 HaminnUI 仍不是可写开发目标，但它是页面调度的受保护例外。只要全局智能体开发服务已开启、调用方通过密码授权且 HaminnUI 正在前台，智能体就能调用 `haminn_get_page_state` 获取其白名单快照，并调用 `haminn_reload_shell` 刷新。传入 `runtimeMode: "online"` 可选择官方实时页面，普通进程重启保留该选择，APK 替换则按恢复机制回到内置 UI。HaminnUI 不接收任意 JavaScript；刷新后只由 APK 调用官方固定的 `window.haminnDevState.restore(state)`，也不开放 HaminnUI 文件。
 

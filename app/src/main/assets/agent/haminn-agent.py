@@ -255,6 +255,116 @@ def plugin_directory():
     return Path(__file__).resolve().parent
 
 
+def plugin_target(agent, home=None):
+    home = Path(home or Path.home()).expanduser().resolve()
+    if agent == "codex":
+        return home / ".codex" / "plugins" / PLUGIN_ID
+    if agent == "workbuddy":
+        return home / ".workbuddy" / "skills" / PLUGIN_ID
+    raise ValueError("Choose a supported agent host: codex or workbuddy")
+
+
+def codex_marketplace_path(home=None):
+    return Path(home or Path.home()).expanduser().resolve() / ".agents" / "plugins" / "marketplace.json"
+
+
+def codex_marketplace_registered(target=None, home=None):
+    home = Path(home or Path.home()).expanduser().resolve()
+    target = Path(target or plugin_target("codex", home)).expanduser().resolve()
+    try:
+        relative = target.relative_to(home).as_posix()
+        path = codex_marketplace_path(home)
+        if path.is_symlink() or not path.is_file():
+            return False
+        marketplace = json.loads(path.read_text(encoding="utf-8"))
+        return any(
+            isinstance(entry, dict) and entry.get("name") == PLUGIN_ID and
+            isinstance(entry.get("source"), dict) and
+            entry["source"].get("source") == "local" and
+            entry["source"].get("path") == "./" + relative
+            for entry in marketplace.get("plugins", [])
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, AttributeError, TypeError):
+        return False
+
+
+def ensure_codex_marketplace(target):
+    """Register the local package in Codex's personal marketplace atomically."""
+    home = Path.home().expanduser().resolve()
+    target = Path(target).expanduser().resolve()
+    try:
+        relative = target.relative_to(home).as_posix()
+    except ValueError as exc:
+        raise RuntimeError("Codex plugin destination must remain inside the user home directory") from exc
+    path = codex_marketplace_path(home)
+    parent = path.parent
+    agents_dir = parent.parent
+    if agents_dir.is_symlink() or parent.is_symlink() or path.is_symlink():
+        raise RuntimeError("Refusing a symlinked Codex marketplace path")
+    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            parent.chmod(0o700)
+        except OSError:
+            pass
+    if path.is_file():
+        try:
+            marketplace = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Codex personal marketplace is unreadable; leaving it unchanged") from exc
+        if not isinstance(marketplace, dict) or not isinstance(marketplace.get("plugins", []), list):
+            raise RuntimeError("Codex personal marketplace has an unsupported format; leaving it unchanged")
+    else:
+        marketplace = {
+            "name": "haminn-local-plugins",
+            "interface": {"displayName": "Haminn development"},
+            "plugins": [],
+        }
+    before = json.dumps(marketplace, ensure_ascii=False, sort_keys=True)
+    marketplace.setdefault("name", "haminn-local-plugins")
+    marketplace.setdefault("interface", {"displayName": "Haminn development"})
+    if not isinstance(marketplace["interface"], dict):
+        raise RuntimeError("Codex marketplace interface metadata is invalid; leaving it unchanged")
+    plugins = marketplace["plugins"]
+    entry = {
+        "name": PLUGIN_ID,
+        "source": {"source": "local", "path": "./" + relative},
+        "policy": {"installation": "INSTALLED_BY_DEFAULT", "authentication": "ON_INSTALL"},
+        "category": "Developer Tools",
+    }
+    found = False
+    updated = []
+    for existing in plugins:
+        if isinstance(existing, dict) and existing.get("name") == PLUGIN_ID:
+            if not found:
+                merged = dict(existing)
+                merged.update(entry)
+                updated.append(merged)
+                found = True
+            continue
+        updated.append(existing)
+    if not found:
+        updated.append(entry)
+    marketplace["plugins"] = updated
+    after = json.dumps(marketplace, ensure_ascii=False, sort_keys=True)
+    if path.is_file() and before == after:
+        return False
+    encoded = json.dumps(marketplace, ensure_ascii=False, indent=2) + "\n"
+    fd, temporary = tempfile.mkstemp(prefix=".haminn-marketplace-", dir=str(parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        if os.name != "nt":
+            os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return before != after
+
+
 def helper_digest():
     """SHA-256 of the helper bytes that are running, not of a version label."""
     try:
@@ -265,30 +375,52 @@ def helper_digest():
 
 
 def plugin_freshness(device):
-    """Whether the helper running here is the one the phone is serving.
-
-    Bytes, not a version string.  The local helper is a copy by definition, and a
-    copy that was half-synced or hand-edited keeps its old version label while
-    behaving differently — measured on 2026-09-29, the copy in this machine's skill
-    directory still claimed version 1.12.0 next to a 1.12.3 helper, so a version
-    comparison would have called a current helper stale.  The device advertises the
-    digest of its own asset, which makes the comparison exact.  A mismatch is
-    repaired by taking the served files again (`GET /haminn-agent.py` and
-    `GET /skills/haminn-dev-plugin/SKILL.md`), or by `install-plugin --force` when
-    the copy to refresh is a plugin directory — never by retrying.
-    """
+    """Compare the running helper, packaged plugin and host registration to Bootstrap."""
     local = helper_digest()
+    root = plugin_directory()
+    local_manifest = None
+    local_package = None
+    try:
+        local_manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
+    try:
+        local_package = (root / ".haminn-package-sha256").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        pass
+    workbuddy_root = plugin_target("workbuddy")
+    codex_registered = codex_marketplace_registered()
+    if root.resolve() == workbuddy_root.resolve():
+        host = "workbuddy"
+        host_registered = True
+    elif codex_registered:
+        host = "codex"
+        host_registered = True
+    else:
+        host = None
+        host_registered = False
     try:
         bootstrap = device.bootstrap()
     except (OSError, RuntimeError) as error:
-        return {"helperSha256": local, "deviceSha256": None, "stale": None, "error": str(error)}
+        return {"host": host, "helperSha256": local, "pluginVersion": (local_manifest or {}).get("version"),
+                "packageSha256": local_package, "hostRegistered": host_registered,
+                "deviceSha256": None, "stale": None, "error": str(error)}
     install = bootstrap.get("install") or {}
-    expected = ((install.get("installer") or {}).get("sha256")
-                or (install.get("fallback") or {}).get("helperSha256"))
-    stale = bool(local and expected and local != expected)
-    return {"helperSha256": local, "deviceSha256": expected, "stale": stale,
+    expected_helper = ((install.get("installer") or {}).get("sha256")
+                       or (install.get("fallback") or {}).get("helperSha256"))
+    expected_package = install.get("packageSha256")
+    expected_version = (bootstrap.get("plugin") or {}).get("version")
+    checks_ready = bool(expected_helper and expected_package and expected_version)
+    stale = None if not checks_ready else bool(
+        local != expected_helper or local_package != expected_package or
+        (local_manifest or {}).get("version") != expected_version or not host_registered
+    )
+    return {"host": host, "helperSha256": local, "deviceHelperSha256": expected_helper,
+            "pluginVersion": (local_manifest or {}).get("version"), "deviceVersion": expected_version,
+            "packageSha256": local_package, "devicePackageSha256": expected_package,
+            "hostRegistered": host_registered, "stale": stale,
             "serverVersion": bootstrap.get("serverVersion"), "helperPath": str(Path(__file__).resolve()),
-            "fix": "re-fetch GET /haminn-agent.py over this file" if stale else None}
+            "fix": "install-plugin --agent " + (host or "codex") if stale else None}
 
 
 HOST_CAPABILITIES = (
@@ -1286,7 +1418,7 @@ def watch_development(device, app_id, directory, already_synced=False, quiet=Fal
     previous = development_signature(directory, tracked) if already_synced else None
     target_ready = already_synced
     reconnect_delay = 0.5
-    last_heartbeat = time.monotonic()
+    next_heartbeat_at = time.monotonic() + 20
     status = WatchStatus(device, app_id, directory) if status is None else status
     status.update(state="watching", appId=app_id, targetReady=target_ready)
     try:
@@ -1354,34 +1486,44 @@ def watch_development(device, app_id, directory, already_synced=False, quiet=Fal
                                   lastChangedPaths=changed_paths)
                     previous = development_signature(directory, tracked)
                     reconnect_delay = 0.5
-                    last_heartbeat = time.monotonic()
-            if time.monotonic() - last_heartbeat >= 20:
+                    next_heartbeat_at = time.monotonic() + 20
+            if time.monotonic() >= next_heartbeat_at:
                 try:
                     device.rpc("ping")
-                    last_heartbeat = time.monotonic()
+                    current = device.tool("haminn_runtime_status")
                 except (OSError, RuntimeError) as error:
                     status.note("connection-reset", error=str(error))
                     target_ready = False
                     if workspace_cache is not None:
                         workspace_cache.clear()
-                    time.sleep(reconnect_delay)
-                    reconnect_delay = min(reconnect_delay * 2, 5.0)
+                    wait = reconnect_delay
+                    time.sleep(wait)
+                    try:
+                        device.initialize()
+                        current = device.tool("haminn_runtime_status")
+                    except (OSError, RuntimeError) as reconnect_error:
+                        device.close()
+                        status.note("reconnect-failed", error=str(reconnect_error))
+                        reconnect_delay = min(reconnect_delay * 2, 5.0)
+                        next_heartbeat_at = time.monotonic() + reconnect_delay
+                    else:
+                        target_ready = current.get("appId") == app_id and current.get("launchChannel") == "dev"
+                        status.note("connection-restored", targetReady=target_ready,
+                                    foregroundAppId=current.get("appId"))
+                        reconnect_delay = 0.5
+                        next_heartbeat_at = time.monotonic() + 20
                 else:
                     # The heartbeat is also where a watcher notices that another
                     # happ took the single foreground runtime: from that moment its
                     # channel is gone and nothing it publishes can be seen.  Flag it
                     # here and let the next save claim the foreground back, rather
                     # than taking the runtime away from a phone someone is using.
-                    try:
-                        current = device.tool("haminn_runtime_status")
-                    except (OSError, RuntimeError) as error:
-                        status.note("foreground-check-failed", error=str(error))
-                    else:
-                        if current.get("appId") != app_id or current.get("launchChannel") != "dev":
-                            if target_ready:
-                                status.note("foreground-lost", reason="heartbeat",
-                                            foregroundAppId=current.get("appId"))
-                            target_ready = False
+                    if current.get("appId") != app_id or current.get("launchChannel") != "dev":
+                        if target_ready:
+                            status.note("foreground-lost", reason="heartbeat",
+                                        foregroundAppId=current.get("appId"))
+                        target_ready = False
+                    next_heartbeat_at = time.monotonic() + 20
                 status.update(targetReady=target_ready)
             time.sleep(0.1)
     finally:
@@ -1401,8 +1543,11 @@ def deploy(device, app_id, directory, expected_release=None):
     return json.loads(device.request("/v1/apps/" + urllib.parse.quote(app_id, safe="") + "/release", "PUT", data, headers))
 
 
-def install_plugin(device, directory=None, force=False, package_url=None, package_sha256=None, plugin_version=None):
-    """Install the device-provided plugin bundle without sending credentials."""
+def install_plugin(device, directory=None, force=False, package_url=None, package_sha256=None,
+                   plugin_version=None, agent="codex"):
+    """Install one shared bundle through the selected host's native entry point."""
+    if agent not in {"codex", "workbuddy"}:
+        raise ValueError("Choose a supported agent host: codex or workbuddy")
     supplied = (package_url, package_sha256, plugin_version)
     if any(value is not None for value in supplied):
         if not all(isinstance(value, str) and value for value in supplied):
@@ -1426,7 +1571,7 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
     actual = hashlib.sha256(data).hexdigest()
     if not isinstance(expected, str) or len(expected) != 64 or expected != actual:
         raise RuntimeError("Haminn 插件包摘要校验失败，旧插件未改变")
-    default_target = (Path.home() / "plugins" / PLUGIN_ID).absolute()
+    default_target = plugin_target(agent)
     target = Path(directory or default_target).expanduser().absolute()
     if target.exists() and target.is_symlink():
         raise RuntimeError("Refusing a symlinked plugin destination")
@@ -1445,8 +1590,8 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
         if manifest.get("id") not in PLUGIN_IDS or manifest.get("kind") != "haminn-agent-plugin":
             raise RuntimeError("Haminn 插件 manifest 不匹配")
-        if manifest.get("packageFormat") != "codex-plugin-archive-v1":
-            raise RuntimeError("Haminn 插件包格式不是当前 Codex 插件格式")
+        if manifest.get("packageFormat") != "haminn-agent-bundle-v1":
+            raise RuntimeError("Haminn 智能体插件包格式不受支持")
         codex_manifest_file = staging_path / ".codex-plugin" / "plugin.json"
         if not codex_manifest_file.is_file():
             raise RuntimeError("Haminn 插件包缺少 Codex plugin.json")
@@ -1454,6 +1599,13 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
         if (codex_manifest.get("name") not in PLUGIN_IDS or
                 codex_manifest.get("version") != manifest.get("codexVersion")):
             raise RuntimeError("Haminn Codex 插件清单不匹配")
+        workbuddy_manifest_file = staging_path / ".workbuddy-plugin" / "plugin.json"
+        if not workbuddy_manifest_file.is_file():
+            raise RuntimeError("Haminn 插件包缺少 WorkBuddy plugin.json")
+        workbuddy_manifest = json.loads(workbuddy_manifest_file.read_text(encoding="utf-8"))
+        if (workbuddy_manifest.get("name") not in PLUGIN_IDS or
+                workbuddy_manifest.get("version") != manifest.get("version")):
+            raise RuntimeError("Haminn WorkBuddy 插件清单不匹配")
         if not force and target.is_dir() and (target / "manifest.json").is_file():
             try:
                 old = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
@@ -1461,8 +1613,11 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
                 if (old.get("id") == manifest.get("id") and
                         old.get("version") == manifest.get("version") and
                         marker.is_file() and marker.read_text(encoding="ascii").strip() == actual):
+                    marketplace_updated = ensure_codex_marketplace(target) if agent == "codex" else False
                     return {"installed": True, "installedPath": str(target), "authenticated": False,
-                            "action": "unchanged", "plugin": manifest,
+                            "action": "unchanged", "plugin": manifest, "agent": agent,
+                            "hostRegistered": True, "marketplaceUpdated": marketplace_updated,
+                            "refresh": "restart_codex" if agent == "codex" else "reload_plugins_or_restart",
                             "nextAction": "authenticate"}
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
@@ -1474,21 +1629,28 @@ def install_plugin(device, directory=None, force=False, package_url=None, packag
                 backup.unlink()
         if target.exists():
             os.replace(target, backup)
+        marketplace_updated = False
         try:
             os.replace(staging_path, target)
+            (target / ".haminn-package-sha256").write_text(actual + "\n", encoding="ascii")
+            try:
+                (target / ".haminn-package-sha256").chmod(0o600)
+            except OSError:
+                pass
+            if agent == "codex":
+                marketplace_updated = ensure_codex_marketplace(target)
         except Exception:
+            if target.exists() and target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
             if backup.exists() and not target.exists():
                 os.replace(backup, target)
             raise
         if backup.exists():
             shutil.rmtree(backup)
-        (target / ".haminn-package-sha256").write_text(actual + "\n", encoding="ascii")
-        try:
-            (target / ".haminn-package-sha256").chmod(0o600)
-        except OSError:
-            pass
         result = {"installed": True, "installedPath": str(target), "authenticated": False,
                   "action": "updated" if had_target else "installed", "plugin": manifest,
+                  "agent": agent, "hostRegistered": True, "marketplaceUpdated": marketplace_updated,
+                  "refresh": "restart_codex" if agent == "codex" else "reload_plugins_or_restart",
                   "nextAction": "authenticate", "serverVersion": bootstrap.get("serverVersion")}
         return result
 
@@ -1546,7 +1708,9 @@ def main():
     build = commands.add_parser("build"); build.add_argument("app_id"); build.add_argument("version_code", type=int); build.add_argument("version_name"); build.add_argument("output")
     publish = commands.add_parser("publish"); publish.add_argument("app_id"); publish.add_argument("version_code", type=int); publish.add_argument("version_name")
     plugin = commands.add_parser("install-plugin", help="Install or update the Haminn plugin from this development service")
-    plugin.add_argument("--directory", default=str(Path.home() / "plugins" / PLUGIN_ID))
+    plugin.add_argument("--agent", choices=("codex", "workbuddy"), default="codex",
+                        help="Host integration to install: Codex marketplace plugin or WorkBuddy user skill")
+    plugin.add_argument("--directory", help="Override the selected host's standard plugin destination")
     plugin.add_argument("--force", action="store_true", help="Reinstall even when the local plugin version is unchanged")
     plugin.add_argument("--package-url", help="Same-origin package URL already obtained from Bootstrap")
     plugin.add_argument("--package-sha256", help="Expected package digest already obtained from Bootstrap")
@@ -1573,7 +1737,8 @@ def main():
                   file=sys.stderr, flush=True)
         result = status_report(device, args.status_file, args.app_id)
     elif args.command == "install-plugin":
-        result = install_plugin(device, args.directory, args.force, args.package_url, args.package_sha256, args.plugin_version)
+        result = install_plugin(device, args.directory, args.force, args.package_url, args.package_sha256,
+                                args.plugin_version, args.agent)
     else:
         if args.command in ("prepare-dir", "develop-dir", "update-dir"):
             device.discover()

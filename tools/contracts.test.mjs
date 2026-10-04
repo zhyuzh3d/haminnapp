@@ -91,7 +91,7 @@ test("agent catalog, guide snapshots and shared-password authority stay aligned"
   assert.match(guide, /happ-<happId-with-dots-replaced-by-hyphens>/);
   assert.match(guide, /one `happId` has one active local directory/);
   assert.match(guide, /does not use those notes to select, compare or synchronize code/);
-  assert.match(discovery, /put\("schema", 3\)/);
+  assert.match(discovery, /put\("schema", 4\)/);
   assert.match(discovery, /put\("resourceDigests", resourceDigests\)/);
   assert.match(discovery, /put\("toolIndex", toolIndex\(\)\)/);
   assert.doesNotMatch(discovery, /put\("tools", catalog\)/);
@@ -113,7 +113,7 @@ test("agent catalog, guide snapshots and shared-password authority stay aligned"
   assert.match(server, /authorization\.isNullOrBlank\(\).*authenticationRequired\(\)/);
   assert.match(server, /put\("error", "authentication_required"\).*put\("reason".*put\("nextAction", "ask_user_for_current_password"/s);
   assert.match(server, /haminn-agent-bootstrap/);
-  assert.match(discovery, /put\("packageFormat", "codex-plugin-archive-v1"\)/);
+  assert.match(discovery, /put\("packageFormat", "haminn-agent-bundle-v1"\)/);
   assert.match(discovery, /atomic_replace_if_hash_differs/);
   assert.match(discovery, /put\("afterInstall", "authenticate"\)/);
   // No connector: the service generates, registers and advertises no MCP server.
@@ -674,7 +674,10 @@ test("the installed plugin identity is haminn-dev-plugin and the legacy name sta
   assert.match(discovery, /put\("id", PLUGIN_ID\)/);
   assert.match(discovery, /put\("replaces", JSONArray\(listOf\(LEGACY_PLUGIN_ID\)\)\)/);
   assert.match(server, /\.put\("name", PLUGIN_ID\)/);
-  assert.match(discovery, /put\("target", "~\/plugins\/\$PLUGIN_ID"\)/);
+  assert.match(discovery, /put\("target", "~\/.codex\/plugins\/\$PLUGIN_ID"\)/);
+  assert.match(discovery, /put\("registration", "~\/.agents\/plugins\/marketplace\.json"\)/);
+  assert.match(discovery, /put\("installationPolicy", "INSTALLED_BY_DEFAULT"\)/);
+  assert.match(discovery, /put\("target", "~\/.workbuddy\/skills\/\$PLUGIN_ID"\)/);
   assert.match(discovery, /skills\/\$PLUGIN_ID\/SKILL\.md/);
   assert.match(server, /"skills\/\$PLUGIN_ID\/SKILL\.md" to guide\(\)/);
   assert.doesNotMatch(server, /put\("mcpServers", JSONObject\(\)\.put\(PLUGIN_ID,/);
@@ -682,9 +685,12 @@ test("the installed plugin identity is haminn-dev-plugin and the legacy name sta
   assert.match(helper, /^PLUGIN_ID = "haminn-dev-plugin"$/m);
   assert.match(helper, /LEGACY_PLUGIN_IDS = \("haminn-device",\)/);
   assert.match(helper, /plugin\.get\("id"\) not in PLUGIN_IDS/);
-  assert.match(helper, /default_target = \(Path\.home\(\) \/ "plugins" \/ PLUGIN_ID\)/);
-  // The helper keeps the device transport but exposes no client-side connector path.
-  assert.doesNotMatch(helper, /stdio|client-config|marketplace|mcpServers|\.mcp\.json/);
+  assert.match(helper, /def plugin_target\(agent, home=None\)/);
+  assert.match(helper, /def ensure_codex_marketplace\(target\)/);
+  assert.match(helper, /def codex_marketplace_path\(home=None\)/);
+  assert.match(helper, /"\.agents" \/ "plugins" \/ "marketplace\.json"/);
+  // The shared bundle registers the local Codex package; it does not add a remote MCP connector.
+  assert.doesNotMatch(helper, /stdio|client-config|mcpServers|\.mcp\.json/);
   assert.match(helper, /def status_report\(device, explicit_path=None, app_id=None\)/);
   assert.match(helper, /def development_scope\(directory, sample=20\)/);
   assert.match(helper, /def plugin_freshness\(device\)/);

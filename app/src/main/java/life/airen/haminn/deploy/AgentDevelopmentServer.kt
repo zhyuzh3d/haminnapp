@@ -33,6 +33,7 @@ import java.util.zip.ZipOutputStream
 /** Installed plugin identity. Renamed from the legacy id, which stays accepted while existing installs migrate. */
 private const val PLUGIN_ID = "haminn-dev-plugin"
 private const val LEGACY_PLUGIN_ID = "haminn-device"
+private const val AGENT_CLIENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
 /** An explicitly enabled, process-scoped developer control plane, separate from page RPC authority. */
 class AgentDevelopmentServer(
@@ -164,7 +165,7 @@ class AgentDevelopmentServer(
         stop("Replaced")
         val bindHost = if (host == "127.0.0.1") host else "0.0.0.0"
         val endpoint = Endpoint(if (host == "127.0.0.1") "usb" else "lan", bindHost, host, port)
-        try { endpoint.start(15_000, false); active = endpoint } catch (error: Exception) { endpoint.stop(); throw error }
+        try { endpoint.start(AGENT_CLIENT_IDLE_TIMEOUT_MS, false); active = endpoint } catch (error: Exception) { endpoint.stop(); throw error }
         networkAvailable = true
         stateHandler?.invoke(true)
         return status()
@@ -244,7 +245,7 @@ class AgentDevelopmentServer(
         val advertisedHost = host ?: "127.0.0.1"
         fun bind(value: Int): Endpoint {
             val endpoint = Endpoint(mode, bindHost, advertisedHost, value)
-            try { endpoint.start(15_000, false) } catch (error: Exception) { endpoint.stop(); throw error }
+            try { endpoint.start(AGENT_CLIENT_IDLE_TIMEOUT_MS, false) } catch (error: Exception) { endpoint.stop(); throw error }
             return endpoint
         }
         val endpoint = try { bind(port) } catch (error: Exception) {
@@ -355,9 +356,9 @@ class AgentDevelopmentServer(
                 .put("codexVersion", codexVersion)
                 .put("replaceScope", "$PLUGIN_ID-only")
                 .put("replaces", JSONArray(listOf(LEGACY_PLUGIN_ID)))
-                .put("packageFormat", "codex-plugin-archive-v1")
+                .put("packageFormat", "haminn-agent-bundle-v1")
                 .put("files", JSONArray(listOf(
-                    "manifest.json", ".codex-plugin/plugin.json",
+                    "manifest.json", ".codex-plugin/plugin.json", ".workbuddy-plugin/plugin.json",
                     "SKILL.md", "skills/$PLUGIN_ID/SKILL.md", "haminn-agent.py", "install.md"
                 )))
             val codexManifest = JSONObject()
@@ -376,13 +377,19 @@ class AgentDevelopmentServer(
                     .put("category", "Developer Tools")
                     .put("capabilities", JSONArray(listOf("Write", "Interactive")))
                     .put("defaultPrompt", JSONArray(listOf("Prepare the selected Haminn happ for local development."))))
+            val workbuddyManifest = JSONObject()
+                .put("name", PLUGIN_ID)
+                .put("version", BuildConfig.VERSION_NAME)
+                .put("description", "Develop runnable Haminn happs on an authorized Android device.")
+                .put("author", JSONObject().put("name", "Haminn"))
             val files = linkedMapOf(
                 "manifest.json" to manifest.toString(2),
                 ".codex-plugin/plugin.json" to codexManifest.toString(2),
+                ".workbuddy-plugin/plugin.json" to workbuddyManifest.toString(2),
                 "SKILL.md" to guide(),
                 "skills/$PLUGIN_ID/SKILL.md" to guide(),
                 "haminn-agent.py" to asset("agent/haminn-agent.py"),
-                "install.md" to "This is a Haminn agent bundle. Install atomically at ~/plugins/$PLUGIN_ID, verify packageSha256, then run haminn-agent.py --address <address> connect once so the six-character password is stored privately. All device work then runs through that helper's command line; this bundle registers no MCP server. It supersedes the legacy $LEGACY_PLUGIN_ID installation of the same product."
+                "install.md" to "This is one Haminn agent bundle for Codex and WorkBuddy, with shared instructions and helper plus host-specific metadata. Install it for Codex at ~/.codex/plugins/$PLUGIN_ID and register ~/.agents/plugins/marketplace.json; install it for WorkBuddy as ~/.workbuddy/skills/$PLUGIN_ID. Verify packageSha256, reload the agent host, then run haminn-agent.py --address <address> connect once so the six-character password is stored privately. All device work then runs through that helper's command line; this bundle registers no MCP server. It supersedes the legacy $LEGACY_PLUGIN_ID installation of the same product."
             )
             files.forEach { (name, content) ->
                 val entry = ZipEntry(name).apply { time = 0L }
@@ -413,7 +420,7 @@ class AgentDevelopmentServer(
         private val writes = ConcurrentHashMap<String, Semaphore>()
         private val failures = ConcurrentHashMap<String, Pair<Int, Long>>()
         @Volatile var lastAccess = SystemClock.elapsedRealtime()
-        init { setAsyncRunner(BoundedAsyncRunner(4)) }
+        init { setAsyncRunner(BoundedAsyncRunner(8, maxThreads = 8, queueCapacity = 16)) }
         private fun live() { if (active !== this) throw IllegalStateException("Developer session stopped") }
         private fun live(authorization: String) { live(); check(authorized(authorization)) { "Password changed; reconnect with the current password" } }
         private fun guarded(authorization: String, action: () -> Unit) = synchronized(this@AgentDevelopmentServer) { live(authorization); action() }
@@ -487,18 +494,26 @@ class AgentDevelopmentServer(
         }
 
         private fun bootstrap() = JSONObject().put("kind", "haminn-agent-bootstrap")
-            .put("protocol", 1).put("product", "Haminn").put("schema", 3)
+            .put("protocol", 1).put("product", "Haminn").put("schema", 4)
             .put("serverVersion", BuildConfig.VERSION_NAME).put("runId", runId)
             .put("protocolVersions", JSONArray(PROTOCOLS))
-            .put("packageFormat", "codex-plugin-archive-v1")
+            .put("packageFormat", "haminn-agent-bundle-v1")
             .put("plugin", JSONObject().put("id", PLUGIN_ID).put("version", BuildConfig.VERSION_NAME)
                 .put("codexVersion", "${BuildConfig.VERSION_NAME}+codex.${AgentWorkspace.sha(address.toByteArray()).take(12)}")
                 .put("displayName", "Haminn happ development"))
-            .put("install", JSONObject().put("action", "install_or_update").put("requiresUserConfirmation", true)
-                .put("packageUrl", "$address/plugin/$PLUGIN_ID").put("packageFormat", "codex-plugin-archive-v1")
+            .put("install", JSONObject().put("action", "install_or_update").put("requiresUserConfirmation", false)
+                .put("packageUrl", "$address/plugin/$PLUGIN_ID").put("packageFormat", "haminn-agent-bundle-v1")
                 .put("packageSha256", pluginSha256()).put("replaceScope", "$PLUGIN_ID-only")
                 .put("replaces", JSONArray(listOf(LEGACY_PLUGIN_ID)))
-                .put("target", "~/plugins/$PLUGIN_ID")
+                .put("targets", JSONObject()
+                    .put("codex", JSONObject().put("target", "~/.codex/plugins/$PLUGIN_ID")
+                        .put("registration", "~/.agents/plugins/marketplace.json")
+                        .put("installationPolicy", "INSTALLED_BY_DEFAULT")
+                        .put("reload", "restart_codex"))
+                    .put("workbuddy", JSONObject().put("target", "~/.workbuddy/skills/$PLUGIN_ID")
+                        .put("registration", "workbuddy_user_skill")
+                        .put("reload", "reload_plugins_or_restart")))
+                .put("target", "~/.codex/plugins/$PLUGIN_ID")
                 .put("strategy", "atomic_replace_if_hash_differs")
                 .put("existingSameVersion", "no_op")
                 .put("installer", JSONObject()
@@ -506,12 +521,20 @@ class AgentDevelopmentServer(
                     .put("sha256", AgentWorkspace.sha(asset("agent/haminn-agent.py").toByteArray()))
                     .put("downloadName", "haminn-agent.py")
                     .put("commands", JSONObject()
-                        .put("posix", JSONArray(listOf("python3", "<downloadedHelper>", "--address", address,
-                            "install-plugin", "--package-url", "$address/plugin/$PLUGIN_ID",
-                            "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME)))
-                        .put("windows", JSONArray(listOf("py", "-3", "<downloadedHelper>", "--address", address,
-                            "install-plugin", "--package-url", "$address/plugin/$PLUGIN_ID",
-                            "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME)))))
+                        .put("codex", JSONObject()
+                            .put("posix", JSONArray(listOf("python3", "<downloadedHelper>", "--address", address,
+                                "install-plugin", "--agent", "codex", "--package-url", "$address/plugin/$PLUGIN_ID",
+                                "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME)))
+                            .put("windows", JSONArray(listOf("py", "-3", "<downloadedHelper>", "--address", address,
+                                "install-plugin", "--agent", "codex", "--package-url", "$address/plugin/$PLUGIN_ID",
+                                "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME))))
+                        .put("workbuddy", JSONObject()
+                            .put("posix", JSONArray(listOf("python3", "<downloadedHelper>", "--address", address,
+                                "install-plugin", "--agent", "workbuddy", "--package-url", "$address/plugin/$PLUGIN_ID",
+                                "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME)))
+                            .put("windows", JSONArray(listOf("py", "-3", "<downloadedHelper>", "--address", address,
+                                "install-plugin", "--agent", "workbuddy", "--package-url", "$address/plugin/$PLUGIN_ID",
+                                "--package-sha256", pluginSha256(), "--plugin-version", BuildConfig.VERSION_NAME))))))
                 .put("authenticateCommand", JSONArray(listOf("<python>", "<pluginDir>/haminn-agent.py", "--address", address, "connect")))
                 .put("afterInstall", "authenticate")
                 .put("fallback", JSONObject().put("skillUrl", "$address/skills/$PLUGIN_ID/SKILL.md")
@@ -525,9 +548,12 @@ class AgentDevelopmentServer(
             .put("clientContract", JSONObject()
                 .put("firstRequest", JSONObject().put("method", "GET").put("path", "/")
                     .put("headers", JSONObject().put("Accept", "application/json")))
+                .put("installBeforeDeviceTools", true)
+                .put("hostTargets", JSONObject().put("codex", "Codex personal plugin marketplace")
+                    .put("workbuddy", "WorkBuddy user skill"))
                 .put("doNot", JSONArray(listOf("read workspace instructions", "search repositories", "open a browser", "scan the LAN", "guess passwords")))
-                .put("successStates", JSONArray(listOf("installed", "authenticated"))))
-            .put("bootstrapInstruction", "安装或更新 $PLUGIN_ID（它取代旧的 $LEGACY_PLUGIN_ID 安装），首次用 install.authenticateCommand 私下录入密码，之后按插件说明用 haminn-agent.py 的命令行准备本地 happ 开发。本插件不注册任何 MCP 服务，也不需要连接器。")
+                .put("successStates", JSONArray(listOf("plugin-installed", "host-registered", "authenticated"))))
+            .put("bootstrapInstruction", "每次用户提供这个地址，先读取 Bootstrap，再按当前智能体宿主（Codex 或 WorkBuddy）立即安装或更新 $PLUGIN_ID，并校验 packageSha256；安装完成后按宿主要求刷新插件。不要只把包解压到通用 plugins 目录。Codex 注册个人 marketplace 并设为默认安装，WorkBuddy 安装到用户 Skills 目录；两者共用同一份 SKILL 和 helper。随后首次私下录入密码，再按说明准备本地 happ。该插件通过 helper 使用设备开发接口，不注册 MCP 连接器。")
             .put("discoveryInstruction", "Read GET /.well-known/haminn-agent for the same cached Bootstrap contract.")
             .put("guidanceVersion", guidanceVersion).put("schemaDigest", AgentWorkspace.sha(catalogText.toByteArray()))
             .put("resourceDigests", resourceDigests).put("intentIndex", intentIndex()).put("toolIndex", toolIndex())
@@ -537,7 +563,7 @@ class AgentDevelopmentServer(
         private fun bootstrapHtml() = """
             <!doctype html><meta charset=\"utf-8\"><title>Haminn 智能体开发插件</title>
             <h1>Haminn 智能体开发插件</h1>
-            <p>把这个地址提供给智能体：它从这里安装或更新 Haminn 开发插件，然后用插件自带的命令行工具开发本机上的 happ。</p>
+            <p>把这个地址提供给 WorkBuddy 或 Codex：智能体应立即安装或更新对应插件/Skill，完成摘要校验并按宿主刷新，然后用同一份 Haminn 开发指引和命令行工具开发本机上的 happ。</p>
             <p>插件：$PLUGIN_ID ${BuildConfig.VERSION_NAME}</p>
             <p>开发密码：请在手机打开 Haminn 应用，在“开发配置”中查看。</p>
             <p>手机网络变化或密码失效时，也请在“开发配置”中获取当前地址和密码。</p>
@@ -546,7 +572,7 @@ class AgentDevelopmentServer(
         private fun connectionGuide() = """
             Haminn ${BuildConfig.VERSION_NAME} agent development connection
             Address: $address
-            Read GET / with Accept: application/json to obtain the haminn-agent-bootstrap contract. Install or update $PLUGIN_ID from install.packageUrl, verify its packageSha256, then run its helper once with the authenticateCommand. /.well-known/haminn-agent returns the same contract for cache refresh. Fetch the short skill only when guidanceVersion changes. Read haminn://tool-index and one haminn://tool/TOOL_NAME schema on demand; do not load full schemas unnecessarily.
+            Read GET / with Accept: application/json to obtain the haminn-agent-bootstrap contract before using any device tool. Select install.targets.codex or install.targets.workbuddy for the current host, then execute install.installer.commands.<host>.<platform>; verify packageSha256. Codex registers ~/.agents/plugins/marketplace.json with INSTALLED_BY_DEFAULT and restarts to load the plugin. WorkBuddy uses ~/.workbuddy/skills/$PLUGIN_ID and reloads with /reload-plugins or a host restart. Both use the same SKILL.md and helper, with host-specific metadata. Then run authenticateCommand privately using the selected target. /.well-known/haminn-agent returns the same contract for cache refresh. Fetch the short skill only when guidanceVersion changes. Read haminn://tool-index and one haminn://tool/TOOL_NAME schema on demand; do not load full schemas unnecessarily.
             This is a trusted-LAN HTTP service, not an encrypted Internet endpoint.
             Ask the user for the current six-character password displayed in Haminn. No pairing or per-computer identity.
             The one persistent password authorizes all exposed developer tools and all apps on any computer.
@@ -558,7 +584,8 @@ class AgentDevelopmentServer(
             Continuous local development: python3 haminn-agent.py --address $address develop-dir /path/to/happ --quiet
             One-shot local preparation: python3 haminn-agent.py --address $address prepare-dir /path/to/happ
             Stable device upgrade: python3 haminn-agent.py --address $address update-dir /path/to/happ --bump patch
-            python3 haminn-agent.py --address $address install-plugin
+            python3 haminn-agent.py --address $address install-plugin --agent codex
+            python3 haminn-agent.py --address $address install-plugin --agent workbuddy
             The helper is the only development entry point; this service registers no MCP server and needs no connector. A successful helper call already proves the global development service is enabled; never check that switch again. For a local happ directory, prefer the helper's develop-dir command: it opens a global session, reads the target dev version, asks for an explicit whole-tree policy, then sends later changes with atomic hot updates and state-preserving refresh. Use update-dir only for an explicit stable device upgrade; it preserves the original instance and data through the standard release transaction. The lower-level prepare-dir, sync-dir and watch commands remain available. Before a direct write cycle call haminn_get_happ_dev_status for the selected target. HaminnUI is protected and never exposed as a development target.
             No frontend build or framework support is needed. Author native HTML + JS + CSS; other tools' finished static output is accepted neutrally.
             Optimize for fast iteration: make focused edits, run only the smallest directly relevant technical check, then sync and refresh immediately. Do not default to full-suite tests, release packaging, screenshots or visual inspection unless the change or user requires them.
