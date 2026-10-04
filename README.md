@@ -31,6 +31,16 @@ Haminn 的目标不是又一个浏览器,而是一个**应用容器**：每个 h
 
 [在 YouTube 上观看 Haminn 开发者版介绍](https://youtu.be/5E_orGlgzwg)
 
+### Haminn 用户版介绍
+
+<p align="center">
+  <a href="https://youtu.be/9f-A9Mcj7cU">
+    <img src="docs/images/haminn-user-intro-cover.png" alt="点击播放 Haminn 用户版介绍视频" width="640">
+  </a>
+</p>
+
+[在 YouTube 上观看 Haminn 用户版介绍](https://youtu.be/9f-A9Mcj7cU)
+
 ### Haminn 功能演示
 
 <p align="center">
